@@ -1,0 +1,460 @@
+{% extends 'base.html' %}
+{% block title %}Прокси{% endblock %}
+{% block header %}Прокси{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+  <div class="card-header bg-info d-flex align-items-center">
+    <h3 class="card-title"><i class="fa-solid fa-shuffle"></i> Пул прокси</h3>
+  </div>
+  <div class="card-body d-flex flex-wrap align-items-center gap-3">
+    <div class="soft">
+      Файл: <code>{{ proxy_pool_path }}</code> · всего строк: <span class="fw-bold">{{ proxy_pool_count }}</span>
+    </div>
+
+    <!-- ✚ Фильтр по стране -->
+    <div class="d-flex align-items-center gap-2">
+      <span class="soft">Страна:</span>
+      <select id="countryFilter" class="form-select form-select-sm" style="width:auto; min-width: 160px;">
+        <option value="">Все</option>
+      </select>
+    </div>
+
+    <div class="ms-auto d-flex gap-2">
+      <button class="btn btn-success" onclick="checkAll()"><i class="fa-solid fa-stethoscope"></i> Проверить все</button>
+      <button class="btn btn-outline-secondary" onclick="location.reload()"><i class="fa-solid fa-rotate"></i> Перечитать файл</button>
+    </div>
+  </div>
+  <div class="card-footer soft">
+    Последняя массовая проверка: <span id="last-updated">—</span>
+  </div>
+</div>
+
+<!-- ✚ Добавление прокси -->
+<div class="card mb-4">
+  <div class="card-header bg-success">
+    <h3 class="card-title"><i class="fa-solid fa-plus"></i> Добавить прокси</h3>
+  </div>
+  <div class="card-body">
+    <div class="mb-2">
+      <textarea id="newProxyLines" class="form-control" rows="4"
+        placeholder="Каждый прокси с новой строки, формат: HOST:PORT[:USER:PASS]"></textarea>
+    </div>
+    <button class="btn btn-success w-100" type="button" onclick="addProxies()">➕ Добавить</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header bg-primary d-flex align-items-center justify-content-between">
+    <h3 class="card-title m-0"><i class="fa-solid fa-list"></i> Прокси</h3>
+    <div class="d-flex gap-2">
+      <button id="btn-remove-selected" class="btn btn-outline-danger btn-sm" type="button" disabled
+              onclick="bulkRemoveSelected()">
+        <i class="fa-solid fa-trash"></i> Удалить отмеченные <span id="sel-count" class="badge bg-danger ms-1">0</span>
+      </button>
+      <button id="btn-remove-all" class="btn btn-danger btn-sm" type="button" onclick="bulkRemoveAll()">
+        <i class="fa-solid fa-dumpster-fire"></i> Удалить все
+      </button>
+    </div>
+  </div>
+
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:1%">
+              <input id="checkAll" type="checkbox" class="form-check-input" title="Выделить все видимые">
+            </th>
+            <th style="width:20%">Прокси</th>
+            <th style="width:12%">Логин</th>
+            <th style="width:22%">Назначен (аккаунты)</th>
+            <th style="width:14%">Страна</th>
+            <th style="width:18%">Статус</th>
+            <th>Ошибка</th>
+            <th style="width:1%"></th>
+          </tr>
+        </thead>
+        <tbody id="proxy-tbody">
+          {% for p in proxies %}
+          <tr id="row-{{ loop.index0 }}" data-line="{{ p.line }}" data-cc="{{ p.country_code or '' }}">
+            <td>
+              <input class="form-check-input proxy-check" type="checkbox" data-line="{{ p.line }}">
+            </td>
+            <td>
+              {% if p.hostport %}
+                <code>{{ p.hostport }}</code>
+              {% else %}
+                <code class="text-danger">! bad line</code>
+              {% endif %}
+              {% if p.checked_at %}
+                <div class="small soft">проверено: <span class="checked-at" data-ts="{{ p.checked_at }}"></span></div>
+              {% endif %}
+            </td>
+            <td>{{ p.user or '—' }}</td>
+            <td>
+              {% if p.used_by and p.used_by|length %}
+                {% for acc in p.used_by %}
+                  <span class="badge bg-secondary pill me-1"><i class="fa-solid fa-user"></i> {{ acc }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="soft">—</span>
+              {% endif %}
+            </td>
+            <td id="country-{{ loop.index0 }}" class="text-nowrap">
+              {% if p.country_code %}
+                <span class="badge bg-light text-dark border" title="{{ p.ip or '' }}">
+                  {{ p.country or p.country_code }} ({{ p.country_code }})
+                </span>
+              {% else %}
+                <span class="soft">—</span>
+              {% endif %}
+            </td>
+            <td id="status-{{ loop.index0 }}">
+              {% if p.ok is sameas(true) %}
+                <span class="badge bg-success"><i class="fa-solid fa-circle-check"></i> OK</span>
+                {% if p.used_by and p.used_by|length %}
+                  <span class="badge bg-warning text-dark">занят</span>
+                {% endif %}
+              {% elif p.ok is sameas(false) %}
+                <span class="badge bg-danger"><i class="fa-solid fa-triangle-exclamation"></i> FAIL</span>
+              {% else %}
+                <span class="badge bg-secondary">не проверен</span>
+              {% endif %}
+            </td>
+            <td id="error-{{ loop.index0 }}" class="small">{% if p.error %}{{ p.error }}{% else %}<span class="soft">—</span>{% endif %}</td>
+            <td class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-primary" onclick="checkOne('{{ p.line|e }}', {{ loop.index0 }})">
+                <i class="fa-solid fa-stethoscope"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-danger" onclick="removeProxy('{{ p.line|e }}')">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not proxies %}
+          <tr><td colspan="8" class="text-center soft py-4">Пул пуст</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PROXIES = {{ proxies|tojson|safe }};
+  const LAST_UPDATED = {{ last_updated or 'null' }};
+
+  /* ===== сеть: 429 Retry-After ===== */
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+  async function fetchWith429(url, opts={}, retries=2){
+    for(let attempt=0; attempt<=retries; attempt++){
+      const resp = await fetch(url, opts);
+      if(resp.status === 429){
+        const ra = parseInt(resp.headers.get('Retry-After')||'1',10) || 1;
+        await sleep((ra + 0.2)*1000);
+        continue;
+      }
+      if(!resp.ok){
+        if(attempt < retries){ await sleep(350); continue; }
+        throw new Error('HTTP '+resp.status);
+      }
+      return resp;
+    }
+    throw new Error('Too many retries');
+  }
+
+  /* ===== helpers ===== */
+
+  function tsToStr(ts){ if(!ts) return '—'; const d = new Date(ts*1000); return d.toLocaleString(); }
+  function setLastUpdated(ts){ document.getElementById('last-updated').textContent = tsToStr(ts); }
+
+  function setCountry(idx, cc, country, ip){
+    const td = document.getElementById('country-'+idx);
+    const tr = document.getElementById('row-'+idx);
+    if(!td || !tr) return;
+    tr.dataset.cc = cc || '';
+    if(cc){
+      const title = ip ? ` title="${ip}"` : '';
+      td.innerHTML = `<span class="badge bg-light text-dark border"${title}>${country || cc} (${cc})</span>`;
+    }else{
+      td.innerHTML = '<span class="soft">—</span>';
+    }
+  }
+
+  function setRowState(idx, state){
+    const st = document.getElementById('status-'+idx);
+    const er = document.getElementById('error-'+idx);
+    const tr = document.getElementById('row-'+idx);
+    if(!st || !er || !tr) return;
+
+    const ts = state.checked_at || Math.floor(Date.now()/1000);
+    let timeSpan = tr.querySelector('.checked-at');
+    if(!timeSpan){
+      const td = tr.children[1]; // column with hostport
+      const wrap = document.createElement('div');
+      wrap.className = 'small soft';
+      wrap.innerHTML = 'проверено: <span class="checked-at"></span>';
+      td.appendChild(wrap);
+      timeSpan = tr.querySelector('.checked-at');
+    }
+    timeSpan.textContent = tsToStr(ts);
+    timeSpan.dataset.ts = ts;
+
+    let html = '';
+    if(state.ok === true){
+      html = '<span class="badge bg-success"><i class="fa-solid fa-circle-check"></i> OK</span>';
+      if(state.used_by && state.used_by.length){
+        html += ' <span class="badge bg-warning text-dark">занят</span>';
+      }
+    } else if(state.ok === false){
+      html = '<span class="badge bg-danger"><i class="fa-solid fa-triangle-exclamation"></i> FAIL</span>';
+    } else {
+      html = '<span class="badge bg-secondary">не проверен</span>';
+    }
+    st.innerHTML = html;
+
+    er.innerHTML = state.error ? state.error : '<span class="soft">—</span>';
+
+    if('country_code' in state || 'country' in state || 'ip' in state){
+      setCountry(idx, state.country_code, state.country, state.ip);
+    }
+  }
+
+  /* ===== existing actions ===== */
+  function checkAll(){
+    fetchWith429('/check_proxy_pool',{ method:'POST' })
+      .then(r=>r.json())
+      .then(d=>{
+        if(d.status!=='ok'){ alert('Ошибка проверки'); return; }
+        const res = d.results || {};
+        setLastUpdated(d.updated_at);
+        PROXIES.forEach((p, idx)=>{
+          const s = res[p.line];
+          if(!s) return;
+          const state = {
+            ok: s.ok, error: s.error, used_by: s.used_by || [],
+            checked_at: s.checked_at || d.updated_at,
+            hostport: s.hostport, country_code: s.country_code || null,
+            country: s.country || null, ip: s.ip || null
+          };
+          setRowState(idx, state);
+        });
+        rebuildCountryFilter();
+      })
+      .catch(()=> alert('Сеть недоступна'));
+  }
+
+  function checkOne(line, idx){
+    fetchWith429('/check_proxy_line',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ line })
+    })
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.status!=='ok'){ alert('Ошибка: '+(d.message||'unknown')); return; }
+      const res = d.result || {};
+      const s = res[line]; if(!s) return;
+      setLastUpdated(Math.floor(Date.now()/1000));
+      const state = {
+        ok: s.ok, error: s.error, used_by: s.used_by || [],
+        checked_at: s.checked_at,
+        hostport: s.hostport, country_code: s.country_code || null,
+        country: s.country || null, ip: s.ip || null
+      };
+      setRowState(idx, state);
+      rebuildCountryFilter();
+    })
+    .catch(()=> alert('Сеть недоступна'));
+  }
+
+  function addProxies(){
+    const text = document.getElementById('newProxyLines').value.trim();
+    if(!text) return alert('Введите хотя бы один прокси');
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+    if(!lines.length) return alert('Нет корректных строк');
+    fetchWith429('/add_proxy',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ lines })
+    })
+    .then(r=>r.json()).then(d=>{
+      if(d.status==='ok'){ alert('Добавлено: '+d.added+' прокси'); location.reload(); }
+      else alert('Ошибка: '+d.message);
+    })
+    .catch(()=> alert('Сеть недоступна'));
+  }
+
+  function removeProxy(line){
+    if(!confirm('Удалить прокси: '+line+' ?')) return;
+    fetchWith429('/remove_proxy',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ line })
+    })
+    .then(r=>r.json()).then(d=>{
+      if(d.status==='ok'){ alert('Удалено: '+d.line); location.reload(); }
+      else alert('Ошибка: '+d.message);
+    })
+    .catch(()=> alert('Сеть недоступна'));
+  }
+
+  /* ===== выбор строк и массовые удаления ===== */
+  function getVisibleRows(){
+    return Array.from(document.querySelectorAll('#proxy-tbody tr'))
+      .filter(tr => tr.style.display !== 'none');
+  }
+  function getSelectedLines(){
+    return Array.from(document.querySelectorAll('.proxy-check:checked'))
+      .map(cb => cb.dataset.line)
+      .filter(Boolean);
+  }
+  function updateSelectionUI(){
+    const sel = getSelectedLines();
+    document.getElementById('sel-count').textContent = sel.length;
+    document.getElementById('btn-remove-selected').disabled = sel.length === 0;
+
+    // мастер-чекбокс: состояние (все/некоторые/ничего)
+    const visible = getVisibleRows();
+    const visibleChecks = visible.map(tr => tr.querySelector('.proxy-check'));
+    const visibleTotal = visibleChecks.length;
+    const visibleChecked = visibleChecks.filter(cb => cb && cb.checked).length;
+
+    const master = document.getElementById('checkAll');
+    master.indeterminate = visibleChecked > 0 && visibleChecked < visibleTotal;
+    master.checked = visibleTotal > 0 && visibleChecked === visibleTotal;
+  }
+
+  function bulkRemoveSelected(){
+    const lines = getSelectedLines();
+    if(!lines.length) return;
+    if(!confirm(`Удалить отмеченные (${lines.length}) прокси?`)) return;
+
+    const btn = document.getElementById('btn-remove-selected');
+    const old = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Удаляю…';
+
+    (async () => {
+      for(const line of lines){
+        try{
+          await fetchWith429('/remove_proxy',{
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ line })
+          });
+        }catch(e){}
+      }
+      location.reload();
+    })().finally(()=>{ btn.innerHTML = old; });
+  }
+
+  function bulkRemoveAll(){
+    if(!PROXIES.length){ alert('Пул пуст'); return; }
+    if(!confirm(`Удалить ВСЕ прокси (${PROXIES.length})? Это действие нельзя отменить.`)) return;
+
+    const btn = document.getElementById('btn-remove-all');
+    const old = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Очищаю…';
+
+    (async () => {
+      for(const p of PROXIES){
+        const line = p.line;
+        try{
+          await fetchWith429('/remove_proxy',{
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ line })
+          });
+        }catch(e){}
+      }
+      location.reload();
+    })().finally(()=>{ btn.innerHTML = old; });
+  }
+
+  // мастер-чекбокс — выделить/снять все видимые
+  document.addEventListener('change', (e)=>{
+    if(e.target && e.target.id === 'checkAll'){
+      const state = !!e.target.checked;
+      getVisibleRows().forEach(tr=>{
+        const cb = tr.querySelector('.proxy-check');
+        if(cb) cb.checked = state;
+      });
+      updateSelectionUI();
+    }
+  });
+  // чекбоксы строк
+  document.addEventListener('change', (e)=>{
+    if(e.target && e.target.classList.contains('proxy-check')){
+      updateSelectionUI();
+    }
+  });
+
+  /* ===== фильтр по стране ===== */
+  function rebuildCountryFilter(){
+    const map = new Map();
+    const rows = document.querySelectorAll('#proxy-tbody tr');
+    rows.forEach((tr, i)=>{
+      const cc = (tr.dataset.cc || '').trim();
+      const label = document.getElementById('country-'+i)?.innerText || '';
+      const key = cc || '';
+      const item = map.get(key) || {cc, label: cc ? label : 'Неизвестно', count:0};
+      item.count++;
+      map.set(key, item);
+    });
+
+    const sel = document.getElementById('countryFilter');
+    const cur = sel.value;
+    for(let i = sel.options.length - 1; i >= 1; i--) sel.remove(i);
+
+    [...map.values()].sort((a,b)=> a.label.localeCompare(b.label))
+      .forEach(({cc,label,count})=>{
+        const opt = document.createElement('option');
+        opt.value = cc;
+        opt.textContent = `${label} — ${count}`;
+        sel.appendChild(opt);
+      });
+
+    const has = [...sel.options].some(o => o.value === cur);
+    sel.value = has ? cur : '';
+    applyCountryFilter(sel.value);
+  }
+
+  function applyCountryFilter(cc){
+    document.querySelectorAll('#proxy-tbody tr').forEach(tr=>{
+      const v = (tr.dataset.cc || '');
+      tr.style.display = (!cc || v === cc) ? '' : 'none';
+    });
+    updateSelectionUI();
+  }
+
+  /* ===== init ===== */
+  document.addEventListener('DOMContentLoaded', ()=>{
+    setLastUpdated(LAST_UPDATED);
+    PROXIES.forEach((p, idx)=>{
+      if(p.checked_at!=null){
+        setRowState(idx, {
+          ok: p.ok, error: p.error, used_by: p.used_by||[],
+          checked_at: p.checked_at,
+          country_code: p.country_code || null,
+          country: p.country || null,
+          ip: p.ip || null
+        });
+      }else if(p.country_code || p.country || p.ip){
+        setCountry(idx, p.country_code, p.country, p.ip);
+      }
+    });
+    rebuildCountryFilter();
+    document.getElementById('countryFilter').addEventListener('change', e=>{
+      applyCountryFilter(e.target.value);
+    });
+    updateSelectionUI();
+
+    initFab([
+      { icon:'<i class="fas fa-stethoscope"></i>', label:'Проверить все', onClick: checkAll },
+      { icon:'<i class="fas fa-rotate"></i>', label:'Перечитать', onClick: ()=>location.reload() },
+      { icon:'<i class="fas fa-trash"></i>', label:'Удалить отмеченные', onClick: bulkRemoveSelected }
+    ]);
+  });
+</script>
+{% endblock %}

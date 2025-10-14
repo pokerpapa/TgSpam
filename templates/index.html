@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}Парсинг{% endblock %}
+{% block header %}Парсинг{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- Ключевые слова -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header bg-info">
+        <h3 class="card-title"><i class="fa-solid fa-key"></i> Ключевые слова для поиска</h3>
+      </div>
+      <div class="card-body">
+        <form id="kw-form">
+          <div class="mb-3">
+            <textarea id="keywords" class="form-control" rows="5"
+                      placeholder="По одному на строке">{{ name_queries|join('\n') }}</textarea>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="onlyWithComments" {% if only_with_comments %}checked{% endif %}>
+            <label for="onlyWithComments" class="form-check-label">Только каналы с комментариями</label>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary" onclick="updateKeywords()"><i class="fa-solid fa-floppy-disk"></i> Обновить</button>
+            <button type="button" class="btn btn-outline-danger" onclick="resetKeywords()"><i class="fa-solid fa-rotate-left"></i> Сбросить</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Управление ботом + прогресс -->
+  <div class="col-lg-6">
+    <div class="card mb-4">
+      <div class="card-header bg-primary">
+        <h3 class="card-title"><i class="fa-solid fa-gears"></i> Управление ботом</h3>
+      </div>
+      <div class="card-body text-center">
+        <p id="script-status" class="fs-6 mb-3">
+          Статус скрипта: <span class="fw-semibold">{{ 'Работает' if script_running else 'Остановлен' }}</span>
+        </p>
+        <div class="d-flex justify-content-center gap-2">
+          <button class="btn btn-success" onclick="startScript()"><i class="fa-solid fa-play"></i> Запустить</button>
+          <button class="btn btn-outline-danger" onclick="stopScript()"><i class="fa-solid fa-stop"></i> Остановить</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header bg-success">
+        <h3 class="card-title"><i class="fa-solid fa-chart-line"></i> Прогресс</h3>
+      </div>
+      <div class="card-body">
+        <div class="progress" role="progressbar" aria-valuenow="{{ percent }}" aria-valuemin="0" aria-valuemax="100">
+          <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: {{ percent }}%">
+            {{ percent }}%
+          </div>
+        </div>
+        <div id="download-link" class="mt-3" {% if percent < 100 %}style="display:none"{% endif %}>
+          <a href="/download" class="btn btn-outline-primary w-100"><i class="fa-solid fa-file-arrow-down"></i> Скачать результаты</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function updateKeywords(){
+    const keys = document.getElementById('keywords').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    const only = document.getElementById('onlyWithComments').checked;
+    fetch('/update_keywords',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name_queries: keys, link_queries: [], only_with_comments: only })
+    }).then(()=>location.reload());
+  }
+  function resetKeywords(){ fetch('/reset_keywords',{method:'POST'}).then(()=>location.reload()); }
+  function startScript(){ fetch('/start',{method:'POST'}).then(()=>alert('Скрипт запущен')); }
+  function stopScript(){ fetch('/stop',{method:'POST'}).then(()=>alert('Скрипт остановлен')); }
+  function refreshStatus(){
+    fetch('/status').then(r=>r.json()).then(d=>{
+      document.getElementById('script-status').innerText = `Статус скрипта: ${d.status}`;
+      const pb = document.getElementById('progress-bar');
+      pb.style.width = d.percent + '%';
+      pb.innerText = d.percent + '%';
+      if(d.percent===100) document.getElementById('download-link').style.display = '';
+    });
+  }
+  setInterval(refreshStatus, 2000);
+
+  // FAB только на мобиле: быстрые действия
+  initFab([
+    { icon:'<i class="fas fa-play"></i>',  label:'Запустить',  onClick: startScript },
+    { icon:'<i class="fas fa-stop"></i>',  label:'Остановить', onClick: stopScript },
+    { icon:'<i class="fas fa-sync"></i>',  label:'Обновить',   onClick: refreshStatus }
+  ]);
+</script>
+{% endblock %}

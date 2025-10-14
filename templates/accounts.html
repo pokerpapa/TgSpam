@@ -1,0 +1,1290 @@
+<!-- templates/accounts.html -->
+{% extends 'base.html' %}
+{% block title %}Управление аккаунтами{% endblock %}
+{% block header %}Accounts{% endblock %}
+
+{% block styles %}
+<style>
+  /* Ярче выделяем активный аккаунт */
+  .card.active-account{
+    outline: 2px solid var(--bs-success);
+    box-shadow: 0 0 0 .25rem rgba(var(--bs-success-rgb), .18), var(--shadow-m);
+  }
+  .card.active-account .card-header{
+    background: rgba(var(--bs-success-rgb), .12);
+  }
+  /* аккуратный хвост с именем .session */
+  .soft.handle-session{ font-size:.9rem; }
+
+  /* мини-аватар в шапке карточки */
+  .acc-avatar{
+    width:44px;height:44px;border-radius:12px;object-fit:cover;border:1px solid #e5e7eb;
+    background:#f3f4f6; flex:0 0 44px;
+  }
+  @media (max-width: 540px){
+    .acc-avatar{ width:40px;height:40px; border-radius:10px;}
+  }
+
+  /* --- ДОБАВЛЕНО: компактный вид и расширенная сетка --- */
+
+  /* Больше колонок на широких экранах */
+  @media (min-width: 992px){ .acc-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 1400px){ .acc-grid { grid-template-columns: repeat(4, 1fr); } }
+
+  /* Компактный вид: меньше отступов, скрыть "тяжёлые" блоки */
+  body.compact .card .card-body{ padding: .5rem .75rem; }
+  body.compact .btn{ padding: .15rem .45rem; font-size: .8rem; }
+  body.compact .bio-block{ display: none; }           /* прячем редактирование BIO */
+  body.compact .input-group{ margin-bottom: .25rem; } /* сжимаем поля */
+
+  /* Чтобы кнопка "Открыть" всегда была видна и не уезжала за край */
+  .card-header.d-flex{ flex-wrap: wrap; }    /* разрешаем перенос содержимого хедера */
+
+  /* Длинные имена аккаунтов ужимаем, обрезаем троеточием */
+  .card-header .card-title{
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ===== Стили для блока «Аккаунты в подготовке» ===== */
+  .prep-card .stage { font-size:.9rem; }
+  .prep-card .countdown{ font-variant-numeric: tabular-nums; }
+  .prep-card .progress { height: 6px; }
+  .prep-badge { border-radius: 999px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ░░░ Добавить аккаунты (.session) ░░░ -->
+<div class="card mb-4">
+  <div class="card-header bg-secondary">
+    <h3 class="card-title"><i class="fa-solid fa-user-plus"></i> Добавить аккаунты (.session)</h3>
+  </div>
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-md-7">
+        <label class="form-label mb-1">Файлы .session</label>
+        <input id="session-files" type="file" class="form-control" multiple accept=".session" />
+        <div class="form-text">Можно выбрать сразу несколько файлов.</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="sess-overwrite">
+          <label class="form-check-label" for="sess-overwrite">Перезаписывать</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="sess-auto-proxy" checked>
+          <label class="form-check-label" for="sess-auto-proxy">Автопрокси</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="sess-verify" checked>
+          <label class="form-check-label" for="sess-verify">Проверить прокси</label>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 d-flex gap-2">
+        <button class="btn btn-primary w-100" type="button" onclick="uploadSessions()">
+          <i class="fa-solid fa-cloud-arrow-up"></i> Загрузить
+        </button>
+        <button class="btn btn-outline-secondary" type="button" onclick="refreshSessions()">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+      </div>
+    </div>
+    <div id="upload-result" class="mt-3 small"></div>
+  </div>
+</div>
+
+<!-- ░░░ Массовые действия с аккаунтами ░░░ -->
+<div class="card mb-4">
+  <div class="card-header bg-dark d-flex align-items-center justify-content-between">
+    <h3 class="card-title m-0"><i class="fa-solid fa-users-slash"></i> Массовые действия</h3>
+    <div class="soft">Выбрано: <span id="sel-acc-count" class="badge bg-secondary">0</span></div>
+  </div>
+  <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+    <div class="btn-group" role="group">
+      <button class="btn btn-outline-secondary" type="button" onclick="selectAllAccounts(true)">
+        <i class="fa-solid fa-check-double"></i> Выбрать все
+      </button>
+      <button class="btn btn-outline-secondary" type="button" onclick="selectAllAccounts(false)">
+        <i class="fa-solid fa-ban"></i> Снять выделение
+      </button>
+    </div>
+
+    <div class="form-check ms-2">
+      <input class="form-check-input" type="checkbox" id="bulk-remove-proxy">
+      <label class="form-check-label" for="bulk-remove-proxy">Удалять и .proxy</label>
+    </div>
+    <div class="form-check ms-2">
+      <input class="form-check-input" type="checkbox" id="bulk-remove-assign" checked>
+      <label class="form-check-label" for="bulk-remove-assign">Чистить assignment</label>
+    </div>
+
+    <!-- НОВОЕ: массово «Отправить в подготовку» -->
+    <button class="btn btn-outline-warning" type="button" onclick="sendSelectedToPrep()">
+      <i class="fa-solid fa-fire"></i> Отправить в подготовку
+    </button>
+
+    <button id="btn-delete-selected" class="btn btn-danger ms-auto" type="button" disabled
+            onclick="deleteSelectedAccounts()">
+      <i class="fa-solid fa-trash"></i> Удалить выбранные
+    </button>
+  </div>
+  <div class="card-footer">
+    <div id="bulk-del-status" class="small soft">—</div>
+  </div>
+</div>
+
+<!-- ░░░ Статус аккаунтов + массовая проверка прокси ░░░ -->
+<div class="card mb-4">
+  <div class="card-body d-flex flex-wrap align-items-center gap-3">
+    <div><span class="soft">Аккаунтов:</span> <span class="badge bg-secondary" id="acc-total">{{ total_count }}</span></div>
+    <div><span class="soft">Proxy OK:</span>  <span class="badge bg-success"   id="acc-proxy-ok">{{ ok_count }}</span></div>
+    <div><span class="soft">Proxy FAIL:</span><span class="badge bg-danger"    id="acc-proxy-fail">{{ fail_count }}</span></div>
+
+    <div class="ms-auto d-flex gap-2 flex-wrap">
+      <button class="btn btn-outline-primary" type="button" onclick="verifyAllProxies()">
+        <i class="fa-solid fa-stethoscope"></i> Проверить прокси на аккаунтах
+      </button>
+
+      <!-- Переключатель компактного вида -->
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="toggle-compact" onchange="toggleCompact(this.checked)">
+        <label class="form-check-label" for="toggle-compact">Компактный вид</label>
+      </div>
+    </div>
+
+    <div id="verify-all-status" class="w-100 small soft mt-2">—</div>
+  </div>
+</div>
+
+<!-- ░░░ Аккаунты в подготовке ░░░ -->
+<div class="card mb-4" id="prep-card" style="display:none;">
+  <div class="card-header bg-warning d-flex align-items-center justify-content-between">
+    <h3 class="card-title m-0">
+      <i class="fa-solid fa-fire"></i> Аккаунты в подготовке
+    </h3>
+    <div class="soft small">
+      Обновление статусов каждые <span id="prep-poll-sec">12</span> сек
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="prep-empty" class="soft">Список пуст — отправьте аккаунты на подготовку.</div>
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xxl-4 g-3" id="prep-grid"></div>
+  </div>
+</div>
+
+<!-- ░░░ Пул прокси ░░░ -->
+<div class="card mb-4">
+  <div class="card-header bg-info">
+    <h3 class="card-title"><i class="fa-solid fa-shuffle"></i> Пул прокси</h3>
+  </div>
+
+  <!-- ВНУТРИ card-body добавили фильтры автоподбора -->
+  <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+    <div class="soft">
+      Файл: <code id="pool-path">{{ proxy_pool_path }}</code> · валидных: <span class="fw-bold" id="pool-count">{{ proxy_pool_count }}</span>
+    </div>
+    <div class="ms-auto d-flex gap-2 flex-wrap">
+      <button class="btn btn-outline-success" onclick="checkAccounts()">
+        <i class="fa-solid fa-user-check"></i> Проверить валидность аккаунтов
+      </button>
+      <button class="btn btn-outline-primary" onclick="autoAssignAll(false)">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Подобрать отсутствующим
+      </button>
+      <button class="btn btn-warning" onclick="if(confirm('Переназначить всем случайно?')) autoAssignAll(true)">
+        <i class="fa-solid fa-dice"></i> Перетасовать всем
+      </button>
+      <!-- ▼ НОВАЯ массовая кнопка удаления прокси у всех аккаунтов -->
+      <button class="btn btn-outline-danger" onclick="clearProxyAll()">
+        <i class="fa-solid fa-broom"></i> Удалить прокси у всех
+      </button>
+    </div>
+
+    <!-- ▼▼▼ НОВЫЕ ФИЛЬТРЫ ДЛЯ АВТОПОДБОРА ▼▼▼ -->
+    <div class="w-100 border-top pt-3 mt-2">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-md-5">
+          <label class="form-label mb-1">Страны для автоподбора</label>
+          <select id="assign-countries" class="form-select" multiple style="height: 92px;">
+            {% for cc, country in country_options %}
+              <option value="{{ cc }}">{{ country or cc }} ({{ cc }})</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Список появляется после проверки прокси на вкладке «Прокси».</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label mb-1">Занятость</label>
+          <select id="assign-occupancy" class="form-select">
+            <option value="free_only" selected>Только свободные</option>
+            <option value="busy_only">Только занятые</option>
+            <option value="any">Любые</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="assign-only-ok" checked>
+            <label class="form-check-label" for="assign-only-ok">Только OK</label>
+          </div>
+          <div class="form-text">OK — прошли проверку на вкладке «Прокси».</div>
+        </div>
+        <div class="col-12 col-md-2">
+          <button class="btn btn-outline-secondary w-100" type="button" onclick="clearAssignFilters()">
+            Сбросить фильтры
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- ▲▲▲ НОВЫЕ ФИЛЬТРЫ ДЛЯ АВТОПОДБОРА ▲▲▲ -->
+
+    <!-- Статус массового удаления прокси -->
+    <div id="bulk-clear-status" class="w-100 small mt-3"></div>
+  </div>
+</div>
+
+<!-- Сетка карточек: больше колонок -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xxl-4 g-3">
+  {% for name in session_names %}
+  {% set ok = proxy_statuses.get(name) %}
+  <div class="col">
+    <div class="card h-100 {% if name==active_account %}active-account{% endif %}">
+      <!-- ОБНОВЛЁННЫЙ ХЕДЕР КАРТОЧКИ -->
+      <div class="card-header d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden">
+          <!-- мини-аватар (кэширован через /avatar/<name>) -->
+          <img class="acc-avatar" src="/avatar/{{ name }}?v={{ loop.index0 }}"
+               alt="avatar" onerror="this.src='/avatar/{{ name }}?v=svg'">
+
+          <!-- чекбокс выбора аккаунта -->
+          <input class="form-check-input acc-select" type="checkbox"
+                 value="{{ name }}" data-name="{{ name }}"
+                 onchange="onSelectAccount(this)">
+
+          {% if name==active_account %}
+            <span class="badge bg-success pill">
+              <i class="fa-solid fa-circle-check"></i> Активный
+            </span>
+          {% endif %}
+
+          <!-- ЗАГОЛОВОК ужимается и не расталкивает кнопку -->
+          <h3 class="card-title mb-0 text-truncate">
+            <span id="title-{{ name|replace('.', '_') }}">{{ name }}</span>
+            <small class="soft handle-session ms-2" id="handle-{{ name|replace('.', '_') }}"></small>
+          </h3>
+        </div>
+
+        <!-- Правая часть фиксированной ширины: кнопка всегда видна -->
+        <div class="ms-auto flex-shrink-0">
+          {% if name==active_account %}
+            <span class="btn btn-sm btn-success disabled">Открыт</span>
+          {% else %}
+            <a class="btn btn-sm btn-outline-primary"
+               href="{{ url_for('select_account', session_name=name) }}">
+              Открыть
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span id="proxy-badge-{{ name|replace('.', '_') }}"
+                class="badge pill {{ 'bg-success' if ok else 'bg-danger' }}">
+            <i class="fa-solid fa-shield-halved"></i> {{ 'Proxy OK' if ok else 'Proxy FAIL' }}
+          </span>
+          {% if proxy_hostports.get(name) %}
+            <span class="soft"><i class="fa-solid fa-network-wired"></i> {{ proxy_hostports[name] }}</span>
+          {% endif %}
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <button class="btn btn-outline-secondary btn-sm" onclick="verifyProxy('{{ name }}')"><i class="fa-solid fa-stethoscope"></i> Проверить прокси</button>
+          <button class="btn btn-outline-info btn-sm" onclick="autoAssign('{{ name }}')"><i class="fa-solid fa-magic"></i> Автоподобрать прокси</button>
+          <button class="btn btn-outline-danger btn-sm" onclick="clearProxy('{{ name }}')"><i class="fa-solid fa-xmark"></i> Удалить прокси</button>
+          <button class="btn btn-outline-success btn-sm" onclick="checkOneAccount('{{ name }}')"><i class="fa-solid fa-user-shield"></i> Проверить аккаунт</button>
+
+          <!-- ▼ НОВОЕ: кнопка смены аватара -->
+          <button class="btn btn-outline-primary btn-sm btn-set-rand" data-name="{{ name }}">
+            <i class="fa-solid fa-image"></i> Случайный аватар
+          </button>
+
+          <!-- ▼ НОВОЕ: отправить на подготовку -->
+          <button class="btn btn-warning btn-sm" onclick="sendToPrep('{{ name }}')">
+            <i class="fa-solid fa-fire"></i> Отправить на подготовку
+          </button>
+
+          <button class="btn btn-outline-danger btn-sm" onclick="deleteSession('{{ name }}')">
+            <i class="fa-solid fa-trash"></i> Удалить аккаунт
+          </button>
+        </div>
+
+        <!-- BIO -->
+        <div class="mb-3 bio-block">
+          <label class="form-label mb-1">Bio (описание профиля)</label>
+          <textarea id="bio-{{ name }}" class="form-control" rows="2" maxlength="140"
+                    placeholder="Короткое описание аккаунта (до 140 символов)"></textarea>
+          <div class="d-flex justify-content-between align-items-center mt-1 small">
+            <span id="bio-status-{{ name }}" class="soft">—</span>
+            <span class="soft"><span id="bio-count-{{ name }}">0</span>/<span id="bio-max-{{ name }}">140</span></span>
+          </div>
+          <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-primary btn-sm" onclick="saveBio('{{ name }}')">
+              <i class="fa-solid fa-floppy-disk"></i> Сохранить Bio
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadBio('{{ name }}')">
+              <i class="fa-solid fa-rotate"></i> Обновить
+            </button>
+          </div>
+        </div>
+
+        <div class="input-group mb-2">
+          <input id="proxy-line-{{ name }}" class="form-control" placeholder="HOST PORT [USER PASS]" />
+          <button class="btn btn-primary" onclick="saveProxy('{{ name }}')"><i class="fa-solid fa-save"></i> Сохранить и проверить</button>
+        </div>
+
+        <!-- Место для статуса валидности конкретного аккаунта -->
+        <div id="health-{{ name }}" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if not session_names %}
+  <p class="text-muted">Сессии не найдены.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Список имён аккаунтов для удобства массового апдейта
+const ACCOUNT_NAMES   = {{ session_names|tojson|safe }};
+const SESSIONS        = {{ session_names|tojson|safe }};        // для читаемости с хелперами ниже
+const PROXY_STATUSES  = {{ proxy_statuses|tojson|safe }};       // name -> true/false
+
+/* ---------- ХЕЛПЕРЫ ДЛЯ ЗАГОЛОВКОВ КАРТОЧЕК ---------- */
+function prettifyProfile(p){
+  if(!p) return null;
+  if(p.username) return '@' + p.username;
+  const fn = (p.first_name || '').trim();
+  const ln = (p.last_name  || '').trim();
+  if(fn || ln) return (fn + ' ' + ln).trim();
+  if(p.phone) return '+' + String(p.phone).replace(/[^\d+]/g, '');
+  return null;
+}
+
+function setCardTitle(name, profileLike){
+  const safeId = String(name).replace(/\./g,'_');
+  const titleEl  = document.getElementById('title-'  + safeId);
+  const handleEl = document.getElementById('handle-' + safeId);
+  if(!titleEl || !handleEl) return;
+
+  const pretty = prettifyProfile(profileLike);
+  if(pretty){
+    titleEl.textContent  = pretty;      // красивое имя
+    handleEl.textContent = name;        // .session серым хвостом
+  }else{
+    titleEl.textContent  = name;
+    handleEl.textContent = '';
+  }
+}
+
+/* ===== Лимитер: 3 параллельно, 300–500 мс между стартами ===== */
+function makeLimiter({concurrency=3, minDelayMs=300, maxDelayMs=500} = {}){
+  const q = [];
+  let active = 0;
+  let lastStart = 0;
+  function runNext(){
+    if(active >= concurrency || q.length === 0) return;
+    const jitter = Math.floor(Math.random()*(maxDelayMs - minDelayMs + 1)) + minDelayMs;
+    const now = Date.now();
+    const wait = Math.max(0, jitter - (now - lastStart));
+    const job = q.shift();
+    setTimeout(async () => {
+      active++; lastStart = Date.now();
+      try { const v = await job.fn(); job.resolve(v); }
+      catch(e){ job.reject(e); }
+      finally { active--; runNext(); }
+    }, wait);
+  }
+  return {
+    schedule(fn){ return new Promise((resolve,reject)=>{ q.push({fn,resolve,reject}); runNext(); }); }
+  };
+}
+const PROFILE_LIMITER = makeLimiter({concurrency: 3, minDelayMs: 300, maxDelayMs: 500});
+
+/* ===== Обёртка fetch с поддержкой 429 Retry-After ===== */
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+async function fetchWith429(url, opts={}, retries=3){
+  for(let attempt=0; attempt<=retries; attempt++){
+    const resp = await fetch(url, opts);
+    if(resp.status === 429){
+      const ra = parseInt(resp.headers.get('Retry-After') || '1', 10) || 1;
+      await sleep((ra + 0.25) * 1000); // небольшой буфер
+      continue;
+    }
+    if(!resp.ok){
+      if(attempt < retries) { await sleep(400); continue; }
+      throw new Error('HTTP '+resp.status);
+    }
+    return resp;
+  }
+  throw new Error('Too many retries');
+}
+
+/* ===== Тихая загрузка профиля через лимитер ===== */
+function queueLoadProfile(name, onData){
+  return PROFILE_LIMITER.schedule(async () => {
+    const r = await fetchWith429(`/profile/${encodeURIComponent(name)}`);
+    const data = await r.json();
+    if(data && data.status === 'ok' && typeof onData === 'function'){
+      onData(data);
+    }
+    return data;
+  });
+}
+
+/* 1) Автоподстановка имён при загрузке (только Proxy OK) — ТЕПЕРЬ ЧЕРЕЗ ОЧЕРЕДЬ */
+(function initProfileTitles(){
+  const names = SESSIONS.filter(n => PROXY_STATUSES && PROXY_STATUSES[n]);
+  names.forEach(name=>{
+    queueLoadProfile(name, (data)=> setCardTitle(name, data));
+  });
+})();
+
+/* 2) Хук: массовая проверка аккаунтов → обновить заголовки */
+window._afterCheckAccountsUpdateTitles = function(resultJson){
+  try{
+    const map = (resultJson && resultJson.results) || {};
+    Object.entries(map).forEach(([name, info])=>{
+      setCardTitle(name, info);
+    });
+  }catch(e){}
+};
+
+// ===== Загрузка .session и перескан =====
+function uploadSessions(){
+  const inp = document.getElementById('session-files');
+  if(!inp || !inp.files || inp.files.length===0){ alert('Выберите .session файлы'); return; }
+
+  const fd = new FormData();
+  [...inp.files].forEach(f => fd.append('files', f));
+  fd.append('overwrite', document.getElementById('sess-overwrite')?.checked ? '1' : '0');
+  fd.append('auto_proxy', document.getElementById('sess-auto-proxy')?.checked ? '1' : '0');
+  fd.append('verify', document.getElementById('sess-verify')?.checked ? '1' : '0');
+
+  const box = document.getElementById('upload-result');
+  box.innerHTML = `<span class="badge bg-secondary">
+    <span class="spinner-border spinner-border-sm me-1"></span> Загружаю...
+  </span>`;
+
+  fetch('/upload_sessions', { method:'POST', body: fd })
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.status!=='ok'){ box.innerHTML = `<span class="text-danger">Ошибка: ${d.message||'unknown'}</span>`; return; }
+      const added = (d.scan?.added||[]).length;
+      const skipped = (d.skipped||[]).length;
+      const overw = (d.overwritten||[]).length;
+      box.innerHTML = `
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <span class="badge bg-success">Добавлено: ${added}</span>
+          ${overw?`<span class="badge bg-warning text-dark">Перезаписано: ${overw}</span>`:''}
+          ${skipped?`<span class="badge bg-secondary">Пропущено: ${skipped}</span>`:''}
+        </div>
+      `;
+      setTimeout(()=>location.reload(), 600);
+    })
+    .catch(()=>{ box.innerHTML = `<span class="text-danger">Сеть недоступна</span>`; });
+}
+
+function refreshSessions(){
+  fetch('/refresh_sessions', {method:'POST'})
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.status==='ok'){
+        const add = (d.added||[]).length;
+        const rem = (d.removed||[]).length;
+        alert(`Обновлено. Новых: ${add}, удалённых: ${rem}`);
+        location.reload();
+      }else{
+        alert('Ошибка обновления списка');
+      }
+    })
+    .catch(()=>alert('Сеть недоступна'));
+}
+
+// ===== Прокси/аккаунты =====
+function verifyProxy(name){
+  fetch(`/verify_proxy/${name}`, {method:'POST'})
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.status==='ok'){
+        alert(d.verified ? 'Прокси работает' : 'Прокси не работает');
+        location.reload();
+      }else{
+        alert('Ошибка: '+(d.message||'unknown'));
+      }
+    })
+    .catch(()=>alert('Сеть недоступна'));
+}
+
+function saveProxy(name){
+  const line = document.getElementById(`proxy-line-${name}`).value.trim();
+  if(!line){ alert('Введите строку прокси'); return; }
+  fetch(`/set_proxy/${name}`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ line })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.status==='ok'){
+      alert(d.verified ? 'Сохранено, прокси работает' : 'Сохранено, но прокси не прошёл проверку');
+      location.reload();
+    } else {
+      alert('Ошибка: '+(d.message||'unknown'));
+    }
+  })
+  .catch(()=>alert('Сеть недоступна'));
+}
+
+/* ====== НОВОЕ: сбор и сброс фильтров ====== */
+function gatherAssignFilters(){
+  const occ = document.getElementById('assign-occupancy')?.value || 'any';
+  const onlyOk = !!document.getElementById('assign-only-ok')?.checked;
+  const sel = document.getElementById('assign-countries');
+  const countries = [];
+  if(sel){
+    [...sel.options].forEach(o => { if(o.selected) countries.push((o.value||'').toUpperCase()); });
+  }
+  return { countries, only_ok: onlyOk, occupancy: occ };
+}
+
+function clearAssignFilters(){
+  const sel = document.getElementById('assign-countries');
+  if(sel) [...sel.options].forEach(o => o.selected = false);
+  const occ = document.getElementById('assign-occupancy');
+  if(occ) occ.value = 'free_only';
+  const ok = document.getElementById('assign-only-ok');
+  if(ok) ok.checked = true;
+}
+
+/* === ИЗМЕНЕНО: автоподбор с фильтрами для одного аккаунта === */
+function autoAssign(name){
+  const filters = gatherAssignFilters();
+  fetch(`/auto_assign/${name}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ force: true, filters })
+  })
+  .then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){
+      let msg='';
+      if(d.assigned){
+        msg = `${name}: назначен${d.line ? ' → '+d.line : ''} | кандидатов: ${d.candidates} | ${d.verified ? 'OK' : 'FAIL'}`;
+      }else{
+        if(d.reason==='pool_empty'){
+          msg = `${name}: пул пуст (${d.pool_path||'proxies.txt'})`;
+        }else if(d.reason==='no_candidates'){
+          msg = `${name}: по текущим фильтрам кандидатов нет`;
+        }else if(d.reason==='already_had'){
+          msg = `${name}: уже был назначен прокси`;
+        }else{
+          msg = `${name}: не удалось назначить (кандидатов: ${d.candidates})`;
+        }
+      }
+      alert(msg); location.reload();
+    } else alert('Ошибка: '+(d.message||'unknown'));
+  });
+}
+
+/* === ИЗМЕНЕНО: автоподбор всем с фильтрами === */
+function autoAssignAll(force=false){
+  const filters = gatherAssignFilters();
+  fetch('/auto_assign_all',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ force, filters })
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){
+      if((d.pool_count||0)===0){
+        alert(`Пул прокси пуст. Проверь файл ${d.pool_path||'proxies.txt'}`);
+      } else {
+        const res = d.results || {};
+        const ok = Object.entries(res).filter(([_,v])=>v.assigned).length;
+        const none = Object.entries(res).filter(([_,v])=>!v.assigned).length;
+        alert(`Готово: назначено ${ok}, пропусков ${none}`);
+      }
+      location.reload();
+    } else alert('Ошибка');
+  });
+}
+
+function clearProxy(name){
+  if(!confirm(`Удалить текущий прокси у ${name}?`)) return;
+  fetch(`/clear_proxy/${name}`, {method:'POST'})
+    .then(r=>r.json()).then(d=>{
+      if(d.status==='ok'){
+        const info = d.cleared || {}; const ok = d.verified;
+        alert(`${name}: удалено sidecar=${info.sidecar_removed?'да':'нет'}, assignment=${info.assign_removed?'да':'нет'} | проверка: ${ok?'OK':'FAIL/нет прокси'}`);
+        location.reload();
+      }else alert('Ошибка: '+(d.message||'unknown'));
+    });
+}
+
+/* === НОВОЕ: массовое удаление прокси у всех аккаунтов === */
+async function clearProxyAll(){
+  if(!ACCOUNT_NAMES || ACCOUNT_NAMES.length===0){
+    alert('Нет аккаунтов.');
+    return;
+  }
+  if(!confirm('Удалить прокси у ВСЕХ аккаунтов?\nБудут очищены sidecar и назначение прокси.')) return;
+
+  const box = document.getElementById('bulk-clear-status');
+  const total = ACCOUNT_NAMES.length;
+  let done = 0, ok = 0, fail = 0;
+
+  function paint(line){
+    box.innerHTML = `
+      <div class="alert alert-secondary mb-2 py-2">
+        <span class="spinner-border spinner-border-sm me-2"></span>
+        Выполняю массовое удаление прокси… ${done}/${total}
+      </div>
+      <div class="small">${line||''}</div>
+    `;
+  }
+  paint('');
+
+  for(const name of ACCOUNT_NAMES){
+    try{
+      const r = await fetch(`/clear_proxy/${encodeURIComponent(name)}`, {method:'POST'});
+      const d = await r.json();
+      done++;
+      if(d && d.status==='ok'){ ok++; }
+      else { fail++; }
+      paint(`Обработано: ${done}/${total} · успешных: ${ok} · ошибок: ${fail}`);
+      // лёгкий троттлинг, чтобы не долбить сервер
+      await new Promise(res=>setTimeout(res, 120));
+    }catch(e){
+      done++; fail++;
+      paint(`Обработано: ${done}/${total} · успешных: ${ok} · ошибок: ${fail}`);
+      await new Promise(res=>setTimeout(res, 120));
+    }
+  }
+
+  box.innerHTML = `
+    <div class="alert alert-info mb-2 py-2">
+      Готово. Успешно: ${ok} · Ошибок: ${fail}.
+    </div>
+  `;
+  setTimeout(()=>location.reload(), 1000);
+}
+
+/** Рендер одной карточки состояния */
+function renderHealth(name, r){
+  const el = document.getElementById(`health-${name}`);
+  if(!el) return;
+
+  // Если прокси не верифицирован — показываем явный статус
+  if(r && r.skipped && r.reason === 'proxy_not_verified'){
+    el.innerHTML = `
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-secondary"><i class="fa-solid fa-ban"></i> Прокси не верифицирован</span>
+      </div>
+    `;
+    return;
+  }
+
+  if(!r || !r.checked){
+    el.innerHTML = `
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-warning text-dark"><i class="fa-solid fa-triangle-exclamation"></i> Не удалось проверить</span>
+      </div>
+    `;
+    return;
+  }
+
+  // Главный бейдж статуса
+  let mainBadge = '';
+  if(r.authorized !== true){
+    mainBadge = `<span class="badge bg-danger"><i class="fa-solid fa-lock"></i> Не авторизован</span>`;
+  } else if(r.banned){
+    mainBadge = `<span class="badge bg-danger"><i class="fa-solid fa-no-entry"></i> Бан</span>`;
+  } else if(r.deactivated){
+    mainBadge = `<span class="badge bg-danger"><i class="fa-solid fa-user-slash"></i> Деактивирован</span>`;
+  } else {
+    mainBadge = `<span class="badge bg-success"><i class="fa-solid fa-circle-check"></i> Валиден</span>`;
+  }
+
+  // Доп. бейджи
+  const extras = [];
+  if(r.username) extras.push(`<span class="badge bg-light text-dark">@${r.username}</span>`);
+  if(r.phone) extras.push(`<span class="badge bg-light text-dark">${r.phone}</span>`);
+  if(r.api_ok === false) extras.push(`<span class="badge bg-danger">API fail</span>`);
+  if(r.can_send_to_self === false) extras.push(`<span class="badge bg-danger">write blocked</span>`);
+  if(typeof r.flood_wait === 'number' && r.flood_wait > 0) extras.push(`<span class="badge bg-warning text-dark">FloodWait ${r.flood_wait}s</span>`);
+  if(r.api_ok === true && !r.error) extras.push(`<span class="badge bg-success">API ok</span>`);
+
+  // Текст ошибки (если есть и это не бан/деактивация/неавторизован)
+  let errorNote = '';
+  if(r.error && (r.authorized === true) && !r.banned && !r.deactivated){
+    errorNote = `<div class="small text-muted mt-1"><i class="fa-regular fa-circle-question"></i> ${r.error}</div>`;
+  }
+
+  el.innerHTML = `
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      ${mainBadge}
+      ${extras.join(' ')}
+    </div>
+    ${errorNote}
+  `;
+}
+
+function deleteSession(name){
+  if(!confirm(`Удалить аккаунт “${name}”? Это удалит файл .session.`)) return;
+  const rmProxy = confirm('Удалить также .proxy для этого аккаунта? Нажмите ОК чтобы удалить, Отмена — оставить .proxy');
+
+  fetch('/delete_session', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name, remove_proxy: rmProxy })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.status==='ok'){
+      const msg = [
+        `Удалён: ${d.session_removed ? 'да' : 'нет'}`,
+        `Proxy-файл: ${d.proxy_sidecar_removed ? 'удалён' : 'сохранён'}`,
+        `Assignment: ${d.proxy_assignment_removed ? 'очищен' : '—'}`
+      ].join(' | ');
+      alert(msg);
+      location.reload();
+    } else {
+      alert('Ошибка: '+(d.message||'unknown'));
+    }
+  })
+  .catch(()=>alert('Сеть недоступна'));
+}
+
+/** Показать «проверка...» на всех карточках */
+function setCheckingIndicators(){
+  ACCOUNT_NAMES.forEach(name=>{
+    const el = document.getElementById(`health-${name}`);
+    if(el){
+      el.innerHTML = `
+        <span class="badge bg-secondary">
+          <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+          Проверка...
+        </span>`;
+    }
+  });
+}
+
+/** Проверка всех аккаунтов: вывод прямо в карточки */
+function checkAccounts(){
+  setCheckingIndicators();
+  fetch('/check_accounts', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if(d.status !== 'ok'){
+        ACCOUNT_NAMES.forEach(n=>{ renderHealth(n, { checked:false }); });
+        return;
+      }
+      const res = d.results || {};
+      ACCOUNT_NAMES.forEach(n=>{
+        renderHealth(n, res[n] || { checked:false });
+      });
+      // Обновим заголовки карточек красивыми именами
+      window._afterCheckAccountsUpdateTitles(d);
+
+      // (опционально) Обновим счётчики поверху на основе текущего кэша статусов прокси
+      paintCounters({
+        accounts: ACCOUNT_NAMES.length,
+        ok: Object.values(PROXY_STATUSES||{}).filter(Boolean).length,
+        fail: ACCOUNT_NAMES.length - Object.values(PROXY_STATUSES||{}).filter(Boolean).length
+      });
+    })
+    .catch(() => {
+      ACCOUNT_NAMES.forEach(n=>{ renderHealth(n, { checked:false }); });
+    });
+}
+
+/** Проверка одного аккаунта (кнопка на карточке) */
+function checkOneAccount(name){
+  const el = document.getElementById(`health-${name}`);
+  if(el){
+    el.innerHTML = `
+      <span class="badge bg-secondary">
+        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+        Проверка...
+      </span>`;
+  }
+  fetch('/check_accounts', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if(d.status !== 'ok'){ renderHealth(name, { checked:false }); return; }
+      const res = d.results || {};
+      renderHealth(name, res[name] || { checked:false });
+      // и сразу обновим заголовок ровно для этого аккаунта
+      if(res[name]) setCardTitle(name, res[name]);
+    })
+    .catch(() => renderHealth(name, { checked:false }));
+}
+
+/* ===== Bio (описание профиля) — теперь грузим через лимитер/429 ===== */
+function bindBioCounter(name, maxLen){
+  const ta = document.getElementById(`bio-${name}`);
+  const cnt = document.getElementById(`bio-count-${name}`);
+  const max = maxLen || parseInt(document.getElementById(`bio-max-${name}`)?.textContent || '140', 10);
+  if(!ta || !cnt) return;
+  function upd(){ cnt.textContent = (ta.value || '').length; }
+  ta.addEventListener('input', upd);
+  upd();
+}
+
+function loadBio(name){
+  // ⛔ Не дергаем бэкенд, если Proxy FAIL
+  if (!(PROXY_STATUSES && PROXY_STATUSES[name])) {
+    const st = document.getElementById(`bio-status-${name}`);
+    if (st) st.textContent = 'Прокси не верифицирован';
+    return;
+  }
+
+  const st = document.getElementById(`bio-status-${name}`);
+  if(st) st.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Загружаю…`;
+
+  queueLoadProfile(name, (d)=>{
+    const ta = document.getElementById(`bio-${name}`);
+    const maxEl = document.getElementById(`bio-max-${name}`);
+    if(maxEl && d.bio_max) maxEl.textContent = d.bio_max;
+    if(ta){
+      if(d.bio_max) ta.maxLength = d.bio_max;
+      ta.value = d.bio || '';
+      bindBioCounter(name, d.bio_max);
+    }
+    // Параллельно обновим красивый заголовок карточки
+    setCardTitle(name, d);
+    if(st) st.textContent = 'Загружено';
+  }).catch(()=>{ if(st) st.textContent = 'Ошибка сети'; });
+}
+
+
+/* ===== Сохранение Bio без очереди (POST) ===== */
+function saveBio(name){
+  const ta = document.getElementById(`bio-${name}`);
+  const st = document.getElementById(`bio-status-${name}`);
+  if(!ta){ alert('Поле Bio не найдено'); return; }
+  const bio = ta.value.trim();
+  if(st) st.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Сохраняю…`;
+
+  fetch(`/set_bio/${name}`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ bio })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.status==='ok'){
+      if(ta){ ta.value = d.bio || bio; bindBioCounter(name, d.bio_max); }
+      if(st) st.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check me-1"></i>Сохранено</span>`;
+    } else {
+      if(st) st.innerHTML = `<span class="text-danger">Ошибка: ${d.message||d.error||'unknown'}</span>`;
+      alert('Ошибка: '+(d.message||d.error||'unknown'));
+    }
+  })
+  .catch(()=>{ if(st) st.innerHTML = `<span class="text-danger">Ошибка сети</span>`; });
+}
+
+/* ===== Массовое выделение / удаление аккаунтов ===== */
+const SELECTED = new Set();
+
+function onSelectAccount(cb){
+  const name = cb.value || cb.dataset.name;
+  if(!name) return;
+  if(cb.checked) SELECTED.add(name); else SELECTED.delete(name);
+  updateBulkSelectionUI();
+}
+
+function selectAllAccounts(state){
+  SELECTED.clear();
+  document.querySelectorAll('.acc-select').forEach(cb=>{
+    cb.checked = !!state;
+    if(state){ const n = cb.value || cb.dataset.name; if(n) SELECTED.add(n); }
+  });
+  updateBulkSelectionUI();
+}
+
+function updateBulkSelectionUI(){
+  const badge = document.getElementById('sel-acc-count');
+  if(badge) badge.textContent = String(SELECTED.size);
+  const btn = document.getElementById('btn-delete-selected');
+  if(btn) btn.disabled = SELECTED.size === 0;
+}
+
+async function deleteSelectedAccounts(){
+  const names = Array.from(SELECTED);
+  if(names.length === 0) return;
+  if(!confirm(`Удалить отмеченные аккаунты (${names.length})?`)) return;
+
+  const rmProxy  = !!document.getElementById('bulk-remove-proxy')?.checked;
+  const rmAssign = !!document.getElementById('bulk-remove-assign')?.checked;
+
+  const box = document.getElementById('bulk-del-status');
+  if(box) box.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Удаление...`;
+
+  try{
+    const resp = await fetch('/delete_sessions_bulk', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ names, remove_proxy: rmProxy, remove_assignment: rmAssign })
+    });
+    const d = await resp.json();
+    if(d.status !== 'ok'){ alert('Ошибка: '+(d.message||'unknown')); return; }
+
+    const t = d.totals || {};
+    if(box) box.innerHTML = `Готово: удалено ${t.deleted||0} из ${t.requested||names.length}, ошибок: ${t.errors||0}, не найдено: ${t.not_found||0}`;
+    alert(`Удалено: ${t.deleted||0} из ${t.requested||names.length}`);
+    setTimeout(()=>location.reload(), 800);
+  }catch(e){
+    if(box) box.textContent = 'Ошибка сети';
+  }
+}
+
+// FAB на мобиле
+initFab([
+  { icon:'<i class="fas fa-random"></i>', label:'Перетасовать', onClick: ()=>autoAssignAll(true) },
+  { icon:'<i class="fas fa-magic"></i>',  label:'Подобрать',    onClick: ()=>autoAssignAll(false) },
+  { icon:'<i class="fas fa-trash"></i>',  label:'Удалить выбранные', onClick: deleteSelectedAccounts }
+]);
+
+/* 3) Инициализация */
+document.addEventListener('DOMContentLoaded', ()=>{
+  ACCOUNT_NAMES.forEach(n => {
+    bindBioCounter(n);
+    if (PROXY_STATUSES && PROXY_STATUSES[n]) {
+      loadBio(n);
+    } else {
+      const st = document.getElementById(`bio-status-${n}`);
+      if (st) st.textContent = 'Прокси не верифицирован';
+    }
+  });
+  updateBulkSelectionUI();
+});
+
+
+/* === НОВОЕ: кнопка случайного аватара === */
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.btn-set-rand');
+  if (!btn) return;
+  btn.disabled = true;
+  const name = btn.dataset.name;
+  const prev = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Ставим...';
+  try {
+    const r = await fetch(`/avatar/set_random/${encodeURIComponent(name)}`, {method:'POST'});
+    const j = await r.json();
+    if (!r.ok) {
+      let msg = j && j.error ? j.error : 'Ошибка';
+      if (j && j.retry_after) msg += ` (повтор через ${j.retry_after}s)`;
+      alert(msg);
+    } else {
+      // обновим картинку
+      const card = btn.closest('.card');
+      const img = card && card.querySelector('.acc-avatar');
+      if (img) img.src = `/avatar/${encodeURIComponent(name)}?v=${Date.now()}`;
+    }
+  } catch(err) {
+    alert('Ошибка сети: ' + err);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = prev;
+  }
+});
+
+/* =========================
+   НОВОЕ: массовая проверка прокси + компактный вид + счётчики
+   ========================= */
+
+/* --- утилита для safe-id (точки в имени) --- */
+const _safeId = (name) => String(name).replace(/\./g, '_');
+
+/* --- обновить бейдж на карточке --- */
+function updateProxyBadge(name, ok){
+  const el = document.getElementById('proxy-badge-' + _safeId(name));
+  if(!el) return;
+  el.classList.remove('bg-success','bg-danger');
+  el.classList.add(ok ? 'bg-success' : 'bg-danger');
+  el.innerHTML = `<i class="fa-solid fa-shield-halved"></i> ${ok ? 'Proxy OK' : 'Proxy FAIL'}`;
+  // синхронно обновим кэш статусов для другой логики страницы
+  if (typeof PROXY_STATUSES === 'object' && PROXY_STATUSES !== null) {
+    PROXY_STATUSES[name] = !!ok;
+  }
+}
+
+/* --- обновить верхние счётчики --- */
+function paintCounters(totals){
+  if(!totals) return;
+  const total = document.getElementById('acc-total');
+  const ok    = document.getElementById('acc-proxy-ok');
+  const fail  = document.getElementById('acc-proxy-fail');
+  if(total) total.textContent = totals.accounts ?? (ACCOUNT_NAMES?.length || 0);
+  if(ok)    ok.textContent    = totals.ok ?? 0;
+  if(fail)  fail.textContent  = totals.fail ?? 0;
+}
+
+/* --- массовая проверка прокси у всех аккаунтов --- */
+async function verifyAllProxies(){
+  const box = document.getElementById('verify-all-status');
+  if(box) box.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Проверяю прокси у всех аккаунтов…`;
+
+  try{
+    const r = await fetch('/verify_proxy_all', {method:'POST'});
+    const d = await r.json();
+    if(d.status !== 'ok') throw new Error(d.message || 'unknown');
+
+    // обновим бейджи на карточках
+    const res = d.results || {};
+    Object.entries(res).forEach(([name, info]) => updateProxyBadge(name, !!info.verified));
+
+    paintCounters(d.totals);
+    if(box) box.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check me-1"></i>Готово: OK ${d.totals.ok}, FAIL ${d.totals.fail}</span>`;
+  }catch(e){
+    if(box) box.innerHTML = `<span class="text-danger">Ошибка: ${e.message||e}</span>`;
+  }
+}
+
+/* --- компактный вид (переключатель сохраняем в localStorage) --- */
+function toggleCompact(on){
+  document.body.classList.toggle('compact', !!on);
+  try { localStorage.setItem('acc_compact', on ? '1' : '0'); } catch(_){}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // восстановим состояние переключателя
+  try{
+    const saved = localStorage.getItem('acc_compact') === '1';
+    const sw = document.getElementById('toggle-compact');
+    if(sw){ sw.checked = saved; }
+    toggleCompact(saved);
+  }catch(_){}
+});
+
+/* ============================
+   ПОДГОТОВКА АККАУНТОВ (UI)
+   ============================ */
+
+/* --- тонкая утилита удаления карточки аккаунта из "готовых" --- */
+function removeAccountCardFromReady(name){
+  const col = document.querySelector(`.acc-select[value="${name}"]`)?.closest('.col');
+  if(col) col.remove();
+}
+
+/* --- форматирование времени ожидания --- */
+function fmtSec(s){
+  if(!Number.isFinite(s) || s<=0) return '0с';
+  const m = Math.floor(s/60), r = s%60;
+  if(m>0) return `${m}м ${r}с`;
+  return `${r}с`;
+}
+function fmtEta(ts){
+  if(!ts) return '';
+  const d = new Date(ts*1000);
+  return d.toLocaleTimeString();
+}
+
+/* --- отправить один аккаунт на подготовку --- */
+async function sendToPrep(name){
+  if(!name) return;
+  if(!confirm(`Отправить ${name} на подготовку?`)) return;
+  try{
+    const r = await fetchWith429(`/prep/start/${encodeURIComponent(name)}`, {method:'POST'});
+    const j = await r.json();
+    if(j.status!=='ok'){ alert('Ошибка: ' + (j.message||j.error||'unknown')); return; }
+    // убираем из списка готовых, добавляем/обновляем в "подготовке"
+    removeAccountCardFromReady(name);
+    await ensurePrepCardVisible();
+    await upsertPrepItem({name, phase:'queued', step_label:'Ожидание старта', progress_pct:0});
+    // сразу дернем статус
+    pollPrepStatusFor(name);
+  }catch(e){ alert('Ошибка сети'); }
+}
+
+/* --- массово отправить выбранные --- */
+async function sendSelectedToPrep(){
+  const names = Array.from(SELECTED || []);
+  if(names.length===0){ alert('Не выбраны аккаунты'); return; }
+  if(!confirm(`Отправить на подготовку: ${names.length} аккаунт(ов)?`)) return;
+  for(const n of names){
+    try{
+      const r = await fetchWith429(`/prep/start/${encodeURIComponent(n)}`, {method:'POST'});
+      const j = await r.json();
+      if(j.status==='ok'){
+        removeAccountCardFromReady(n);
+        await ensurePrepCardVisible();
+        await upsertPrepItem({name:n, phase:'queued', step_label:'Ожидание старта', progress_pct:0});
+      }
+    }catch(_){}
+    await sleep(120); // нежный троттлинг
+  }
+  // пинками запускаем поллинг
+  startPrepPolling();
+}
+
+/* --- показать карточку-блок "Аккаунты в подготовке" если есть элементы --- */
+async function ensurePrepCardVisible(){
+  const wrap = document.getElementById('prep-card');
+  if(wrap) wrap.style.display = '';
+}
+
+/* --- первичная загрузка списка --- */
+async function loadPrepList(){
+  try{
+    const r = await fetchWith429('/prep/list', {method:'GET'});
+    const j = await r.json();
+    const items = (j && j.items) || [];
+    const card = document.getElementById('prep-card');
+    if(items.length>0 && card){ card.style.display=''; }
+    const empty = document.getElementById('prep-empty');
+    if(empty){ empty.style.display = items.length? 'none' : ''; }
+    items.forEach(upsertPrepItem);
+  }catch(_){
+    // тихо игнорим
+  }
+}
+
+/* --- отрисовать/обновить карточку одного готовящегося аккаунта --- */
+function upsertPrepItem(item){
+  if(!item || !item.name) return;
+  const grid = document.getElementById('prep-grid');
+  if(!grid) return;
+
+  const safe = _safeId(item.name);
+  let col = document.getElementById('prep-col-'+safe);
+  const pct = Math.max(0, Math.min(100, Math.round(item.progress_pct || 0)));
+  const blockedUntil = item.blocked_until_ts || null;
+  const countdownSec = item.countdown_sec || (blockedUntil ? Math.max(0, Math.floor(blockedUntil - Date.now()/1000)) : 0);
+  const eta = (item.eta_sec || 0);
+
+  const actionBtn = item.done
+    ? `<button class="btn btn-success btn-sm" onclick="promoteFromPrep('${item.name}')">
+         <i class="fa-solid fa-rocket"></i> В работу
+       </button>`
+    : `<button class="btn btn-outline-secondary btn-sm" disabled>
+         <i class="fa-regular fa-hourglass-half"></i> В процессе
+       </button>`;
+
+  const html = `
+    <div class="card h-100 prep-card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h3 class="card-title mb-0 text-truncate">${item.pretty || item.name}</h3>
+        <span class="badge bg-warning text-dark prep-badge">${item.phase || 'prep'}</span>
+      </div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="stage soft">${item.step_label || '—'}</div>
+          ${blockedUntil ? `<div class="countdown soft" id="cd-${safe}" data-ts="${blockedUntil}">${fmtSec(countdownSec)}</div>`: ''}
+        </div>
+        <div class="progress mb-2">
+          <div id="pg-${safe}" class="progress-bar" role="progressbar" style="width:${pct}%"
+               aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <div class="small soft mb-2">
+          ${eta ? `ETA: ~${fmtSec(eta)} · ` : ''} ${blockedUntil ? `До разблокировки: ${fmtEta(blockedUntil)}` : ''}
+        </div>
+        <div class="d-flex gap-2">
+          ${actionBtn}
+          <button class="btn btn-outline-danger btn-sm" onclick="cancelPrep('${item.name}')">
+            <i class="fa-solid fa-xmark"></i> Отмена
+          </button>
+        </div>
+      </div>
+    </div>`;
+
+  if(!col){
+    col = document.createElement('div');
+    col.className = 'col';
+    col.id = 'prep-col-'+safe;
+    col.innerHTML = html;
+    grid.prepend(col);
+  }else{
+    col.innerHTML = html;
+  }
+}
+
+/* --- таймеры обратного отсчёта для всех карточек --- */
+function tickCountdowns(){
+  document.querySelectorAll('[id^="cd-"]').forEach(el=>{
+    const ts = parseInt(el.dataset.ts||'0',10);
+    if(!ts) return;
+    const left = Math.max(0, Math.floor(ts - Date.now()/1000));
+    el.textContent = fmtSec(left);
+  });
+}
+setInterval(tickCountdowns, 1000);
+
+/* --- запрос статуса одного аккаунта и обновление карточки --- */
+async function pollPrepStatusFor(name){
+  try{
+    const r = await fetchWith429(`/prep/status/${encodeURIComponent(name)}`);
+    const j = await r.json();
+    if(j && j.status==='ok' && j.item){
+      upsertPrepItem(j.item);
+    }
+  }catch(_){}
+}
+
+/* --- общий поллинг всех, что есть в гриде --- */
+let _prepPollTimer = null;
+const PREP_POLL_SEC = 12;
+
+function startPrepPolling(){
+  try{
+    clearInterval(_prepPollTimer);
+  }catch(_){}
+  _prepPollTimer = setInterval(async ()=>{
+    const cols = document.querySelectorAll('[id^="prep-col-"]');
+    const names = Array.from(cols).map(c => c.id.replace(/^prep-col-/, '').replace(/_/g,'.'));
+    for(const n of names){
+      await pollPrepStatusFor(n);
+      await sleep(150); // мягко
+    }
+  }, PREP_POLL_SEC*1000);
+  const span = document.getElementById('prep-poll-sec');
+  if(span) span.textContent = PREP_POLL_SEC;
+}
+
+/* --- вывести из подготовки в работу --- */
+async function promoteFromPrep(name){
+  try{
+    const r = await fetchWith429(`/prep/promote/${encodeURIComponent(name)}`, {method:'POST'});
+    const j = await r.json();
+    if(j.status!=='ok'){ alert('Не получилось: ' + (j.message||'unknown')); return; }
+    // убираем из блока подготовки и просто перезагружаем страницу, чтобы перерисовать "готовые"
+    const col = document.getElementById('prep-col-'+_safeId(name));
+    if(col) col.remove();
+    location.reload();
+  }catch(_){
+    alert('Ошибка сети');
+  }
+}
+
+/* --- отменить подготовку (по желанию) --- */
+async function cancelPrep(name){
+  if(!confirm(`Отменить подготовку ${name}?`)) return;
+  try{
+    const r = await fetchWith429(`/prep/cancel/${encodeURIComponent(name)}`, {method:'POST'});
+    const j = await r.json();
+    if(j.status!=='ok'){ alert('Не получилось: ' + (j.message||'unknown')); return; }
+    const col = document.getElementById('prep-col-'+_safeId(name));
+    if(col) col.remove();
+    location.reload();
+  }catch(_){
+    alert('Ошибка сети');
+  }
+}
+
+/* --- автоинициализация блока подготовки при загрузке страницы --- */
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await loadPrepList();
+  startPrepPolling();
+});
+</script>
+{% endblock %}

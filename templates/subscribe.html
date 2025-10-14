@@ -1,0 +1,326 @@
+{% extends 'base.html' %}
+{% block title %}Управление подписками{% endblock %}
+{% block header %}Управление подписками{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  {% if proxy_required %}
+  <!-- Плашка-подсказка, когда прокси не верифицирован -->
+  <div class="col-12">
+    <div class="alert alert-warning d-flex align-items-start" role="alert">
+      <div class="me-3"><i class="fa-solid fa-shield-halved fa-lg"></i></div>
+      <div>
+        <div class="fw-semibold">Нужен рабочий прокси для аккаунта{% if active_account %} <span class="badge bg-light text-dark ms-1">{{ active_account }}</span>{% endif %}</div>
+        <div class="small mt-1">
+          Назначьте или проверьте прокси на вкладке «Аккаунты», затем вернитесь сюда.
+        </div>
+        <div class="mt-2 d-flex gap-2">
+          <a class="btn btn-warning" href="{{ url_for('accounts_page') }}">
+            <i class="fa-solid fa-network-wired me-1"></i> Открыть «Аккаунты»
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Подписанные -->
+  <div class="col-lg-12">
+    <div class="card">
+      <div class="card-header bg-primary">
+        <h3 class="card-title"><i class="fa-solid fa-bookmark"></i> Вступленные каналы</h3>
+      </div>
+      <div class="card-body">
+        {% if joined %}
+          <div class="accordion" id="joinedAccordion">
+            {% for link, title in joined.items() %}
+            <div class="accordion-item mb-2 shadow-sm rounded">
+              <h2 class="accordion-header" id="h{{ loop.index }}">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#c{{ loop.index }}"
+                        aria-controls="c{{ loop.index }}">
+                  {{ title }}
+                </button>
+              </h2>
+              <div id="c{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#joinedAccordion">
+                <div class="accordion-body d-flex flex-wrap gap-2 align-items-center">
+                  <small class="soft me-auto">{{ link }}</small>
+                  <button class="btn btn-sm btn-outline-danger" onclick='leaveChannel({{ link|tojson }})'
+                          {% if proxy_required %}disabled title="Сначала подключите прокси на вкладке «Аккаунты»"{% endif %}>
+                    <i class="fa-solid fa-right-from-bracket"></i> Выйти
+                  </button>
+                  <button class="btn btn-sm btn-outline-success" onclick='resubscribe({{ link|tojson }}, {{ loop.index }})'
+                          {% if proxy_required %}disabled title="Сначала подключите прокси на вкладке «Аккаунты»"{% endif %}>
+                    <i class="fa-solid fa-user-plus"></i> Вступить
+                  </button>
+                  <div class="input-group" style="max-width:420px">
+                    <textarea id="prompt-{{ loop.index }}" class="form-control" rows="1" placeholder="Новый промпт…">{{ (joined_entities[link] and monitored_info[joined_entities[link].id] or ['', ''])[1] }}</textarea>
+                    <button class="btn btn-primary" onclick='applyPrompt({{ link|tojson }}, {{ loop.index }})'
+                            {% if proxy_required %}disabled title="Сначала подключите прокси на вкладке «Аккаунты»"{% endif %}>✔</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-muted mb-0">Вы не состоите ни в одном канале.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Новый набор каналов -->
+  <div class="col-lg-12">
+    <div class="card">
+      <div class="card-header bg-info">
+        <h3 class="card-title"><i class="fa-solid fa-plus"></i> Добавить новые каналы</h3>
+      </div>
+      <div class="card-body">
+        <form id="subscribeForm">
+          <div class="row g-3">
+            <div class="col-lg-6">
+              <label class="form-label" for="channelSearch">Поиск в найденных:</label>
+              <input id="channelSearch" type="text" class="form-control" placeholder="Начните вводить название…">
+
+              <!-- Массовые действия по чекбоксам каналов -->
+              <div class="mt-2 d-flex gap-2 flex-wrap" id="channelBulkActions">
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        onclick="toggleChannels(true)">
+                  Выбрать все
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        onclick="toggleChannels(false)">
+                  Снять все
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        onclick="toggleChannels(true, true)">
+                  Выбрать видимые
+                </button>
+              </div>
+
+              {% if channels %}
+              <div class="mt-3 p-2 border rounded" style="max-height:300px; overflow:auto">
+                {% for chat in channels %}
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                  <div class="form-check">
+                    <input class="form-check-input me-2" type="checkbox" id="chan{{ loop.index }}" value="{{ chat[1] }}">
+                    <label class="form-check-label" for="chan{{ loop.index }}">
+                      {{ chat[0] or chat[1] }} <small class="soft">({{ chat[2] }})</small>
+                    </label>
+                  </div>
+                  <button class="btn btn-sm btn-outline-danger" type="button" onclick='removeFound({{ chat[1]|tojson }})'
+                          {% if proxy_required %}disabled title="Сначала подключите прокси на вкладке «Аккаунты»"{% endif %}>
+                    Удалить
+                  </button>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+
+              <div class="mt-3">
+                <label class="form-label" for="extraChannels">Дополнительные ссылки (по одной на строке)</label>
+                <textarea id="extraChannels" class="form-control" rows="3"></textarea>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <label class="form-label" for="commentText">Комментарий к новым постам</label>
+              <textarea id="commentText" class="form-control" rows="5" required>{{ universal_prompt }}</textarea>
+              <small>
+                <a href="#" onclick='document.getElementById("commentText").value={{ universal_prompt|tojson }}; return false;'>Установить универсальный промпт</a>
+              </small>
+
+              <!-- Выбор аккаунтов -->
+              <div class="mt-3">
+                <label class="form-label">Аккаунты</label>
+                <div id="accountChecks" class="d-flex flex-wrap gap-3">
+                  {% for acc in account_options %}
+                  <div class="form-check">
+                    <input class="form-check-input acc-check" type="checkbox" id="acc{{ loop.index }}" value="{{ acc }}" {% if acc==active_account %}checked{% endif %}>
+                    <label class="form-check-label" for="acc{{ loop.index }}">
+                      {{ acc }} {% if acc==active_account %}<span class="badge bg-success">активный</span>{% endif %}
+                    </label>
+                  </div>
+                  {% endfor %}
+                </div>
+                <div class="mt-2 d-flex gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAccounts(true)">Выбрать все</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAccounts(false)">Снять все</button>
+                </div>
+                <div class="form-text">Если не выбирать аккаунты — будет использован только активный.</div>
+              </div>
+
+              <!-- Действия -->
+              <div class="sticky-actions mt-3 rounded">
+                <div class="d-flex flex-wrap gap-2">
+                  <button type="button" class="btn btn-primary flex-fill"
+                          onclick="submitForm('distribute')"
+                          {% if proxy_required %}disabled title="Сначала подключите прокси на вкладке «Аккаунты»"{% endif %}>
+                    <i class="fa-solid fa-diagram-project"></i> Распределить и отслеживать
+                  </button>
+                  <button type="button" class="btn btn-outline-primary"
+                          onclick="submitForm('duplicate')"
+                          {% if proxy_required %}disabled title="Сначала подключите прокси на вкладке «Аккаунты»"{% endif %}>
+                    <i class="fa-solid fa-copy"></i> Подписать всем
+                  </button>
+                  <button type="button" class="btn btn-outline-warning ms-auto" onclick="resetChannels()">
+                    <i class="fa-solid fa-broom"></i> Сбросить найденные
+                  </button>
+                </div>
+              </div>
+
+              <!-- Превью плана распределения -->
+              <div id="assign-preview" class="mt-3"></div>
+            </div>
+          </div> <!-- /row -->
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PROXY_REQUIRED = {{ 'true' if proxy_required else 'false' }};
+
+  /* ===== сеть: 429 Retry-After ===== */
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+  async function fetchWith429(url, opts={}, retries=2){
+    for(let attempt=0; attempt<=retries; attempt++){
+      const resp = await fetch(url, opts);
+      if(resp.status === 429){
+        const ra = parseInt(resp.headers.get('Retry-After')||'1',10) || 1;
+        await sleep((ra + 0.2)*1000);
+        continue;
+      }
+      if(!resp.ok){
+        if(attempt < retries){ await sleep(350); continue; }
+        throw new Error('HTTP '+resp.status);
+      }
+      return resp;
+    }
+    throw new Error('Too many retries');
+  }
+
+  // Фильтрация списка каналов
+  document.getElementById('channelSearch')?.addEventListener('input', function(){
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('#subscribeForm .form-check').forEach(row=>{
+      const label = row.querySelector('label')?.innerText.toLowerCase() || '';
+      const root = row.closest('.d-flex') || row.closest('.form-check');
+      if(root) root.style.display = label.includes(q) ? '' : 'none';
+    });
+  });
+
+  function toggleAccounts(state){
+    document.querySelectorAll('.acc-check').forEach(cb => cb.checked = !!state);
+  }
+
+  // Массовое выделение каналов
+  function toggleChannels(state, onlyVisible=false){
+    // Все чекбоксы каналов имеют id вида chan1, chan2, …
+    const boxes = document.querySelectorAll('#subscribeForm input.form-check-input[id^="chan"]');
+    boxes.forEach(cb=>{
+      const row = cb.closest('.d-flex') || cb.closest('.form-check');
+      if(onlyVisible && row && row.style.display === 'none') return; // пропускаем скрытые фильтром
+      cb.checked = !!state;
+    });
+  }
+
+  function submitForm(mode){
+    mode = mode || 'distribute';
+    if(PROXY_REQUIRED){
+      alert('Сначала подключите и проверьте прокси на вкладке «Аккаунты».');
+      return;
+    }
+    const extra   = document.getElementById('extraChannels').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    const checked = Array.from(document.querySelectorAll('input.form-check-input[type="checkbox"][id^="chan"]:checked')).map(el=>el.value);
+    const channels= checked.concat(extra);
+    const comment = document.getElementById('commentText').value.trim();
+    const accounts = Array.from(document.querySelectorAll('.acc-check:checked')).map(el=>el.value);
+
+    if(!channels.length || !comment) return alert('Укажите ссылки и промпт');
+
+    fetchWith429('/subscribe',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ comment, channels, accounts, assign_mode: mode })
+    })
+    .then(r=>r.json())
+    .then(d=>{
+      // Превью плана: показываем и для distribute, и для duplicate (будет видно, что у всех одинаково)
+      if(d.assignment){
+        const el = document.getElementById('assign-preview');
+        const rows = Object.entries(d.assignment).map(([acc, links])=>{
+          const examples = (links || []).slice(0, 3).map(s=>`<div class="text-truncate" title="${s}">${s}</div>`).join('');
+          return `<tr>
+            <td><span class="badge bg-secondary pill"><i class="fa-solid fa-user"></i> ${acc}</span></td>
+            <td><span class="badge bg-primary">${(links||[]).length}</span></td>
+            <td class="small soft">${examples || '—'}</td>
+          </tr>`;
+        }).join('');
+        el.innerHTML = `
+          <div class="alert alert-info">
+            <div class="fw-semibold mb-2"><i class="fa-solid fa-diagram-project me-1"></i>
+              ${mode==='distribute' ? 'План распределения' : 'План (подписать всем)'}</div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Аккаунт</th><th>Каналов</th><th>Примеры</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+            <div class="soft mt-2">${d.status || ''}</div>
+          </div>`;
+      }
+      alert(d.status || 'OK');
+      setTimeout(()=>location.reload(), 1500);
+    })
+    .catch(()=>alert('Ошибка сети'));
+  }
+
+  function resetChannels(){ fetchWith429('/reset_channels',{method:'POST'}).then(()=>location.reload()); }
+
+  function leaveChannel(link){
+    if(PROXY_REQUIRED){
+      alert('Сначала подключите и проверьте прокси на вкладке «Аккаунты».');
+      return;
+    }
+    fetchWith429('/leave_channel',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ link })})
+      .then(()=>location.reload());
+  }
+
+  function resubscribe(link, idx){
+    if(PROXY_REQUIRED){
+      alert('Сначала подключите и проверьте прокси на вкладке «Аккаунты».');
+      return;
+    }
+    const prompt = document.getElementById(`prompt-${idx}`).value.trim();
+    if(!prompt) return alert('Укажите промпт');
+    // для одиночного канала логичнее "duplicate"
+    fetchWith429('/subscribe',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ comment: prompt, channels: [link], assign_mode:'duplicate' })})
+      .then(()=>location.reload());
+  }
+
+  function applyPrompt(link, idx){
+    const prompt = document.getElementById(`prompt-${idx}`).value.trim();
+    if(!prompt) return alert('Укажите промпт');
+    fetchWith429('/update_prompt',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ link, prompt })})
+      .then(r=>r.json()).then(d=>{ if(d.status==='ok') alert('Промпт обновлён'); else alert('Ошибка: '+d.message); });
+  }
+
+  function removeFound(link){
+    if(!confirm('Удалить канал из списка найденных?')) return;
+    fetchWith429('/remove_found_channel',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ link })})
+      .then(r=>r.json()).then(d=>{ if(d.status==='ok') location.reload(); else alert('Ошибка: '+d.error); });
+  }
+
+  // FAB
+  initFab([
+    { icon:'<i class="fas fa-diagram-project"></i>', label:'Распределить', onClick: ()=>submitForm('distribute') },
+    { icon:'<i class="fas fa-copy"></i>', label:'Всем', onClick: ()=>submitForm('duplicate') },
+    { icon:'<i class="fas fa-trash"></i>', label:'Сбросить', onClick: resetChannels }
+  ]);
+</script>
+{% endblock %}

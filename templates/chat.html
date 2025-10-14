@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}AI Chat{% endblock %}
+{% block header %}AI Chat{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header bg-primary d-flex justify-content-between align-items-center">
+        <h3 class="card-title"><i class="fa-solid fa-comments"></i> AI Chat</h3>
+        <button class="btn btn-sm btn-light" onclick="clearChat()"><i class="fa-solid fa-eraser"></i> Очистить</button>
+      </div>
+      <div class="card-body">
+        <div id="chat-history" class="bubble-wrap"></div>
+      </div>
+      <div class="card-footer">
+        <div class="input-group">
+          <input id="chat-input" class="form-control" placeholder="Введите сообщение…" />
+          <button class="btn btn-primary" onclick="sendChat()"><i class="fa-solid fa-paper-plane"></i> Отправить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escapeHtml(str){return str.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+function addBubble(text, who='me'){
+  const wrap = document.getElementById('chat-history');
+  const div = document.createElement('div');
+  div.className = `bubble ${who}`;
+  div.innerHTML = escapeHtml(text);
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function sendChat(){
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if(!msg) return;
+  addBubble(msg, 'me');
+  input.value = '';
+
+  fetch('/chat', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ message: msg })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.reply) addBubble(d.reply, 'ai');
+    else addBubble('Ошибка: '+(d.error||'unknown'), 'ai');
+  })
+  .catch(()=> addBubble('Ошибка соединения', 'ai'));
+}
+
+function clearChat(){ document.getElementById('chat-history').innerHTML=''; }
+document.getElementById('chat-input').addEventListener('keypress', (e)=>{
+  if(e.key==='Enter'){ e.preventDefault(); sendChat(); }
+});
+
+/* Адаптивная высота истории на мобилке */
+function setChatHeight(){
+  const wrap = document.getElementById('chat-history');
+  if(!wrap) return;
+  const card = wrap.closest('.card');
+  const headerH = card.querySelector('.card-header')?.offsetHeight || 0;
+  const footerH = card.querySelector('.card-footer')?.offsetHeight || 0;
+  const top = card.getBoundingClientRect().top + window.scrollY;
+  const viewportH = window.innerHeight;
+  const margins = 32;
+  const avail = viewportH - (card.offsetTop - window.scrollY) - headerH - footerH - margins;
+  wrap.style.height = Math.max(220, avail) + 'px';
+}
+window.addEventListener('resize', setChatHeight);
+window.addEventListener('orientationchange', setChatHeight);
+window.addEventListener('DOMContentLoaded', setChatHeight);
+
+// FAB
+initFab([
+  { icon:'<i class="fas fa-eraser"></i>', label:'Очистить', onClick: clearChat }
+]);
+</script>
+{% endblock %}

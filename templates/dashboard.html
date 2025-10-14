@@ -1,0 +1,542 @@
+{% extends 'base.html' %}
+{% block title %}Дашборд{% endblock %}
+{% block header %}Дашборд{% endblock %}
+
+{% block content %}
+<div id="dash-root" class="row g-3">
+
+  <!-- KPI -->
+  <div class="col-12">
+    <div class="row g-3">
+      <div class="col-6 col-lg-3">
+        <div class="card text-center">
+          <div class="card-header bg-success d-flex justify-content-between align-items-center">
+            <h3 class="card-title m-0">Отправлено (сегодня)</h3>
+            <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+          </div>
+          <div class="card-body"><div id="kpi-live" class="display-6 fw-bold">0</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-3">
+        <div class="card text-center">
+          <div class="card-header bg-primary d-flex justify-content-between align-items-center">
+            <h3 class="card-title m-0">Отправлено (24ч)</h3>
+            <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+          </div>
+          <div class="card-body"><div id="kpi-day" class="display-6 fw-bold">0</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-3">
+        <div class="card text-center">
+          <div class="card-header bg-info d-flex justify-content-between align-items-center">
+            <h3 class="card-title m-0">В очереди</h3>
+            <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+          </div>
+          <div class="card-body"><div id="kpi-queue" class="display-6 fw-bold">0</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-3">
+        <div class="card text-center">
+          <div class="card-header bg-dark d-flex justify-content-between align-items-center">
+            <h3 class="card-title m-0">Аккаунты</h3>
+            <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+          </div>
+          <div class="card-body"><div id="kpi-acc" class="display-6 fw-bold">{{ accounts|length }}</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Лента активности -->
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header bg-primary d-flex justify-content-between align-items-center">
+        <h3 class="card-title m-0"><i class="fa-solid fa-bolt"></i> Последние действия</h3>
+        <div class="d-flex align-items-center gap-2">
+          <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive table-sticky" id="recent-wrap">
+          <table class="table mb-0 align-middle table-sm table-fixed">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th class="col-time text-nowrap">Время</th>
+                <th class="col-account">Аккаунт</th>
+                <th class="col-event">Событие</th>
+                <th class="col-channel">Канал</th>
+                <th class="col-text">Текст</th>
+              </tr>
+            </thead>
+            <tbody id="recent-body"><tr><td colspan="5" class="soft text-center py-3">Загрузка…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="p-2 text-center">
+          <button id="recent-more" class="btn btn-outline-secondary btn-sm">Показать ещё</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Топ каналов -->
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header bg-success d-flex justify-content-between align-items-center">
+        <h3 class="card-title m-0"><i class="fa-solid fa-ranking-star"></i> Топ каналов (24ч)</h3>
+        <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+      </div>
+      <div class="card-body">
+        <ol id="top-channels" class="mb-0"></ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- Очередь по аккаунтам -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header bg-info d-flex align-items-center justify-content-between">
+        <h3 class="card-title m-0"><i class="fa-solid fa-list-check"></i> Очередь комментариев</h3>
+        <div class="d-flex align-items-center gap-3">
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input" type="checkbox" id="toggleQueueEmpty">
+            <label class="form-check-label small" for="toggleQueueEmpty">Показывать пустые</label>
+          </div>
+          <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive table-sticky" id="queue-wrap">
+          <table class="table mb-0 align-middle table-sm table-fixed">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th data-sort="name" class="sortable">Аккаунт</th>
+                <th data-sort="qcount" class="sortable">В очереди</th>
+                <th data-sort="next" class="sortable">Следующая отправка</th>
+                <th>Превью задач (до 10)</th>
+              </tr>
+            </thead>
+            <tbody id="queue-body"><tr><td colspan="4" class="soft text-center py-3">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Сводка по аккаунтам -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header bg-dark">
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <h3 class="card-title m-0"><i class="fa-solid fa-users-gear"></i> Состояние аккаунтов</h3>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <div class="input-group input-group-sm" style="max-width:260px">
+              <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+              <input id="accSearch" type="text" class="form-control" placeholder="Поиск по аккаунту/персоне">
+            </div>
+            <div class="form-check form-switch m-0">
+              <input class="form-check-input" type="checkbox" id="toggleCompact">
+              <label class="form-check-label small" for="toggleCompact">Компактно</label>
+            </div>
+            <div class="form-check form-switch m-0">
+              <input class="form-check-input" type="checkbox" id="filterFails">
+              <label class="form-check-label small" for="filterFails">Только FAIL</label>
+            </div>
+            <div class="form-check form-switch m-0">
+              <input class="form-check-input" type="checkbox" id="filterRunning">
+              <label class="form-check-label small" for="filterRunning">Только скрипт ON</label>
+            </div>
+            <button class="btn btn-light btn-sm btn-fs" title="Развернуть"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive table-sticky" id="acc-wrap">
+          <table class="table mb-0 align-middle table-sm table-fixed" id="acc-table">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th data-sort="name" class="sortable">Аккаунт</th>
+                <th data-sort="persona" class="sortable">Персона</th>
+                <th>Proxy</th>
+                <th data-sort="proxy" class="sortable">Proxy OK</th>
+                <th data-sort="joined_count" class="sortable">Подписок</th>
+                <th data-sort="monitored_count" class="sortable">Мониторится</th>
+                <th data-sort="cooldown" class="sortable">CD, c</th>
+                <th data-sort="running" class="sortable">Скрипт</th>
+                <th class="col-optional">Прогресс</th>
+              </tr>
+            </thead>
+            <tbody id="acc-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Модал для полного просмотра события -->
+<div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Детали события</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <dl class="row mb-0" id="detailBody">
+          <!-- наполняется из JS -->
+        </dl>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  /* таблицы не «прыгают» и не расползаются */
+  .table-sticky thead.sticky-top th { position: sticky; top: 0; z-index: 1; }
+  .table-fixed { table-layout: fixed; }
+  /* фиксируем высоты блоков и включаем внутренний скролл */
+  #recent-wrap{ max-height: 360px; overflow: auto; }
+  #queue-wrap { max-height: 300px; overflow: auto; }
+  #acc-wrap   { max-height: 420px; overflow: auto; }
+  /* компактный режим */
+  #dash-root.compact .table td, #dash-root.compact .table th { padding: .35rem .5rem; font-size: .9rem; }
+  #dash-root.compact .col-optional { display: none; }
+  /* сортировка */
+  .sortable { cursor: pointer; }
+  .sortable .sort-ind { opacity:.5; margin-left:.25rem; }
+  /* подсветка активного аккаунта */
+  tr.active-row { outline: 2px solid var(--bs-success); outline-offset: -2px; background: rgba(var(--bs-success-rgb), .075); }
+  /* обрезка длинных значений с троеточием */
+  .td-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .clamp-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  /* ширины колонок в «Последние действия» (чтобы не прыгали) */
+  .col-time    { width: 140px; }
+  .col-account { width: 160px; }
+  .col-event   { width: 95px; }
+  .col-channel { width: 260px; }
+  .col-text    { width: auto; }
+  /* полноэкранный режим карточки */
+  .fs-card {
+    position: fixed; inset: 64px 12px 12px 12px; z-index: 1050;
+    max-width: none; width: auto; height: auto;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.25);
+  }
+  .fs-card .table-responsive { max-height: calc(100vh - 180px) !important; }
+  .btn-fs { line-height:1; }
+</style>
+
+<script>
+/* ===== helpers ===== */
+function esc(s){return (s??'').toString().replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function ts2str(ts){ if(!ts) return '—'; const d=new Date(ts*1000); return d.toLocaleString(); }
+
+/* ===== сеть: 429 Retry-After ===== */
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+async function fetchWith429(url, opts={}, retries=2){
+  for(let attempt=0; attempt<=retries; attempt++){
+    const resp = await fetch(url, opts);
+    if(resp.status === 429){
+      const ra = parseInt(resp.headers.get('Retry-After')||'1',10) || 1;
+      await sleep((ra + 0.2)*1000);
+      continue;
+    }
+    if(!resp.ok){
+      if(attempt < retries){ await sleep(350); continue; }
+      throw new Error('HTTP '+resp.status);
+    }
+    return resp;
+  }
+  throw new Error('Too many retries');
+}
+
+
+/* ===== state ===== */
+const DASH = {
+  data: null,
+  sortAcc: { key: 'name', dir: 'asc' },
+  sortQueue: { key: 'name', dir: 'asc' },
+  filters: {
+    query: '',
+    onlyFail: false,
+    onlyRunning: false,
+    showQueueEmpty: false,
+  },
+  activeAccount: {{ active_account|default('', true)|tojson }}
+};
+// отдельное состояние для ленты
+const RECENT = { limit: 20, minutes: 1440, items: [] };
+
+/* ===== UI controls binding ===== */
+function bindControls(){
+  const root = document.getElementById('dash-root');
+  const qs   = document.getElementById('accSearch');
+  const cmp  = document.getElementById('toggleCompact');
+  const ff   = document.getElementById('filterFails');
+  const fr   = document.getElementById('filterRunning');
+  const qE   = document.getElementById('toggleQueueEmpty');
+
+  qs?.addEventListener('input', ()=>{ DASH.filters.query = qs.value.toLowerCase(); renderAccounts(); });
+  cmp?.addEventListener('change', ()=>{ root.classList.toggle('compact', cmp.checked); });
+  ff?.addEventListener('change', ()=>{ DASH.filters.onlyFail = ff.checked; renderAccounts(); });
+  fr?.addEventListener('change', ()=>{ DASH.filters.onlyRunning = fr.checked; renderAccounts(); });
+  qE?.addEventListener('change', ()=>{ DASH.filters.showQueueEmpty = qE.checked; renderQueue(); });
+
+  // сортировка кликом по заголовку (аккаунты)
+  document.querySelectorAll('#acc-table thead th.sortable').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.getAttribute('data-sort');
+      if(!key) return;
+      if(DASH.sortAcc.key===key){ DASH.sortAcc.dir = DASH.sortAcc.dir==='asc'?'desc':'asc'; }
+      else { DASH.sortAcc.key=key; DASH.sortAcc.dir='asc'; }
+      renderAccounts();
+      paintSortIcons('#acc-table thead', DASH.sortAcc);
+    });
+  });
+
+  // «Показать ещё» для ленты
+  document.getElementById('recent-more')?.addEventListener('click', ()=>{
+    RECENT.limit = Math.min(RECENT.limit + 20, 1000); // предохранитель
+    loadRecent();
+  });
+
+  // добавить индикаторы сортировки
+  document.querySelectorAll('thead th.sortable[data-sort]').forEach(th=>{
+    const icon=document.createElement('span'); icon.className='sort-ind'; icon.innerHTML='⇅';
+    th.appendChild(icon);
+  });
+
+  // фуллскрин для карточек
+  document.querySelectorAll('.btn-fs').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const card = btn.closest('.card');
+      card.classList.toggle('fs-card');
+      document.body.classList.toggle('overflow-hidden', card.classList.contains('fs-card'));
+      // переключим иконку
+      btn.innerHTML = card.classList.contains('fs-card')
+        ? '<i class="fa-solid fa-down-left-and-up-right-to-center"></i>'
+        : '<i class="fa-solid fa-up-right-and-down-left-from-center"></i>';
+    });
+  });
+}
+function paintSortIcons(scopeSel, state){
+  document.querySelectorAll(scopeSel+' th.sortable').forEach(th=>{
+    const k=th.getAttribute('data-sort');
+    const ind=th.querySelector('.sort-ind'); if(!ind) return;
+    if(k===state.key){ ind.textContent = state.dir==='asc'?'▲':'▼'; ind.style.opacity='1'; }
+    else { ind.textContent='⇅'; ind.style.opacity='.5'; }
+  });
+}
+
+/* ===== render blocks ===== */
+function renderKPI(d){
+  document.getElementById('kpi-live').textContent  = d.kpis.sent_live;
+  document.getElementById('kpi-day').textContent   = d.kpis.sent_last_24h;
+  document.getElementById('kpi-queue').textContent = d.kpis.enqueued_now;
+  document.getElementById('kpi-acc').textContent   = d.kpis.accounts_total;
+}
+function renderTop(d){
+  const top = document.getElementById('top-channels'); top.innerHTML='';
+  (d.top_channels||[]).forEach(item=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="fw-semibold">${esc(item.channel||'—')}</span> — ${item.count}`;
+    top.appendChild(li);
+  });
+  if(!(d.top_channels||[]).length) top.innerHTML = '<div class="soft">Нет данных</div>';
+}
+function renderQueue(){
+  const qb = document.getElementById('queue-body'); qb.innerHTML='';
+  const d = DASH.data || {};
+  const per = (d.queue||{}).per_account || {};
+  const accNames = Object.keys(per);
+  let rows = [];
+  accNames.forEach(name=>{
+    const qcount = per[name]?.count || 0;
+    if(qcount===0 && !DASH.filters.showQueueEmpty) return;
+    const next = (d.accounts?.[name]?.next_send_at||0);
+    const items = (per[name]?.items||[]).slice(0,10).map(it=>{
+      const link = it.source_link ? `<a href="${esc(it.source_link)}" title="${esc(it.source_link)}" target="_blank" class="td-clip d-inline-block" style="max-width:16rem;">${esc(it.source_link)}</a>` : '—';
+      return `<div class="small clamp-2" title="${esc(it.text||'')}"><span class="badge bg-secondary me-1">${it.ready_in}s</span>${link} — ${esc(it.text||'')}</div>`;
+    }).join('') || '<span class="soft">—</span>';
+    rows.push({name, qcount, next, items});
+  });
+  // сортировка
+  rows.sort((a,b)=>{
+    const key = DASH.sortQueue.key;
+    let A=a[key], B=b[key];
+    if(key==='name'){ A=A.toLowerCase(); B=B.toLowerCase(); }
+    const s = (A>B) - (A<B);
+    return DASH.sortQueue.dir==='asc' ? s : -s;
+  });
+  if(!rows.length){ qb.innerHTML='<tr><td colspan="4" class="soft text-center py-3">Очередь пуста</td></tr>'; return; }
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="fw-semibold td-clip" title="${esc(r.name)}">${esc(r.name)}</td>
+      <td><span class="badge bg-primary">${r.qcount}</span></td>
+      <td>${ts2str(r.next)}</td>
+      <td>${r.items}</td>`;
+    qb.appendChild(tr);
+  });
+}
+function renderAccounts(){
+  const ab = document.getElementById('acc-body'); ab.innerHTML='';
+  const d = DASH.data || {};
+  const map = d.accounts || {};
+  let list = Object.entries(map).map(([name,a])=>{
+    return {
+      name,
+      persona: (a.persona||'').toString(),
+      proxy: !!a.proxy_verified,
+      proxyStr: a.proxy ? `<code class="td-clip d-inline-block" style="max-width:16rem;" title="${esc(a.proxy)}">${esc(a.proxy)}</code>` : '<span class="soft">—</span>',
+      joined_count: a.joined_count||0,
+      monitored_count: a.monitored_count||0,
+      cooldown: a.cooldown||0,
+      running: !!a.script_running,
+      progress: a.progress?.status ? `${esc(a.progress.status)} (${a.progress.percent||0}%)` : '—'
+    };
+  });
+
+  // фильтры
+  const q = (DASH.filters.query||'').trim();
+  if(q){
+    const ql = q.toLowerCase();
+    list = list.filter(x => x.name.toLowerCase().includes(ql) || x.persona.toLowerCase().includes(ql));
+  }
+  if(DASH.filters.onlyFail)    list = list.filter(x => !x.proxy);
+  if(DASH.filters.onlyRunning) list = list.filter(x => x.running);
+
+  // сортировка
+  const {key, dir} = DASH.sortAcc;
+  list.sort((a,b)=>{
+    let A=a[key], B=b[key];
+    if(typeof A==='string') A=A.toLowerCase();
+    if(typeof B==='string') B=B.toLowerCase();
+    const s = (A>B) - (A<B);
+    return dir==='asc' ? s : -s;
+  });
+
+  if(!list.length){
+    ab.innerHTML = '<tr><td colspan="9" class="soft text-center py-3">Ничего не найдено</td></tr>';
+    return;
+  }
+
+  list.forEach(a=>{
+    const ok = a.proxy ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-danger">FAIL</span>';
+    const running = a.running ? '<span class="badge bg-success">on</span>' : '<span class="badge bg-secondary">off</span>';
+    const tr = document.createElement('tr');
+    if(DASH.activeAccount && a.name===DASH.activeAccount){ tr.classList.add('active-row'); }
+    tr.innerHTML = `
+      <td class="fw-semibold td-clip" title="${esc(a.name)}">${esc(a.name)}</td>
+      <td class="td-clip" title="${esc(a.persona||'—')}">${esc(a.persona||'—')}</td>
+      <td>${a.proxyStr}</td>
+      <td>${ok}</td>
+      <td>${a.joined_count}</td>
+      <td>${a.monitored_count}</td>
+      <td>${a.cooldown}</td>
+      <td>${running}</td>
+      <td class="col-optional td-clip" title="${esc(a.progress)}">${a.progress}</td>
+    `;
+    ab.appendChild(tr);
+  });
+}
+function renderRecentList(items){
+  RECENT.items = items || [];
+  const rb = document.getElementById('recent-body'); rb.innerHTML='';
+  const recent = RECENT.items;
+  if(!recent.length){ rb.innerHTML = '<tr><td colspan="5" class="soft text-center py-3">Пока пусто</td></tr>'; return; }
+  recent.forEach((r, idx)=>{
+    const ev = r.EVENT;
+    const evBadge =
+      ev==='SEND_OK'   ? '<span class="badge bg-success">SEND_OK</span>' :
+      ev==='ENQUEUE'   ? '<span class="badge bg-info text-dark">ENQUEUE</span>' :
+      `<span class="badge bg-secondary">${esc(ev||'?')}</span>`;
+    const chanLabel = r.CHANNEL_LABEL || r.LINK || (r.CHAT_ID ?? r.DISC_ID) || '—';
+    const chanUrl   = r.CHANNEL_URL   || r.LINK || '';
+    const linkHtml  = chanUrl
+      ? `<a href="${esc(chanUrl)}" target="_blank" class="td-clip d-inline-block" style="max-width:13rem;" title="${esc(chanUrl)}">${esc(chanLabel)}</a>`
+      : `<span class="td-clip" title="${esc(chanLabel)}">${esc(chanLabel)}</span>`;
+
+    const tr = document.createElement('tr');
+    tr.dataset.idx = idx;
+    tr.className = 'recent-row';
+    tr.innerHTML = `
+      <td class="text-nowrap">${esc(r.time||'')}</td>
+      <td class="td-clip" title="${esc(r.ACCOUNT||'')}">${esc(r.ACCOUNT||'')}</td>
+      <td>${evBadge}</td>
+      <td>${linkHtml}</td>
+      <td class="small clamp-2" title="${esc(r.TEXT||'')}">${esc(r.TEXT||'')}</td>
+    `;
+    rb.appendChild(tr);
+  });
+
+  // клики по строкам → модал с полным текстом
+  rb.querySelectorAll('tr.recent-row').forEach(tr=>{
+    tr.addEventListener('click', ()=>{
+      const idx = Number(tr.dataset.idx||-1);
+      if(idx<0) return;
+      showRecentDetails(RECENT.items[idx]);
+    });
+  });
+}
+
+/* ===== details modal ===== */
+function showRecentDetails(rec){
+  const body = document.getElementById('detailBody');
+  const fields = [
+    ["Время", rec.time||'—'],
+    ["Аккаунт", rec.ACCOUNT||'—'],
+    ["Событие", rec.EVENT||'—'],
+    ["Канал/ID", rec.LINK ? `<a href="${esc(rec.LINK)}" target="_blank">${esc(rec.LINK)}</a>` : esc(rec.CHAT_ID||'—')],
+    ["Текст", `<div class="border rounded p-2 bg-light" style="white-space:pre-wrap">${esc(rec.TEXT||'')}</div>`],
+  ];
+  body.innerHTML = fields.map(([k,v])=>`<dt class="col-sm-3">${k}</dt><dd class="col-sm-9">${v}</dd>`).join('');
+  const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+  modal.show();
+}
+
+/* ===== data fetch ===== */
+function refresh(){
+  fetchWith429('/api/dashboard/overview')
+    .then(r=>r.json())
+    .then(d=>{
+      DASH.data = d || {};
+      if(d.meta && d.meta.active_account){ DASH.activeAccount = d.meta.active_account; }
+
+      renderKPI(d);
+      renderTop(d);
+      renderQueue();
+      renderAccounts();
+    })
+    .catch(()=>{ /* молча */ });
+}
+function loadRecent(){
+  fetchWith429(`/api/dashboard/recent?limit=${RECENT.limit}&minutes=${RECENT.minutes}`)
+    .then(r=>r.json())
+    .then(d=> renderRecentList(d.items || []))
+    .catch(()=>{ /* молча */ });
+}
+
+
+
+/* ===== init ===== */
+document.addEventListener('DOMContentLoaded', ()=> {
+  bindControls();
+  paintSortIcons('#acc-table thead', DASH.sortAcc);
+
+  const jitterA = Math.floor(Math.random()*800);
+  const jitterB = Math.floor(Math.random()*1200);
+
+  setTimeout(()=>{ refresh(); setInterval(refresh, 5000 + Math.floor(Math.random()*500)); }, jitterA);
+  setTimeout(()=>{ loadRecent(); setInterval(loadRecent, 20000 + Math.floor(Math.random()*2000)); }, jitterB);
+
+  // FAB для мобилки
+  initFab([{ icon:'<i class="fas fa-rotate"></i>', label:'Обновить', onClick: ()=>{ refresh(); loadRecent(); } }]);
+});
+
+</script>
+{% endblock %}

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>{% block title %}Телеграм бот{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Иконки -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        referrerpolicy="no-referrer"/>
+
+  <!-- Предзагрузка тем (чтобы переключалось мгновенно) -->
+  <link rel="preload" as="style"
+        href="https://cdn.jsdelivr.net/npm/bootswatch@5/dist/darkly/bootstrap.min.css">
+  <link rel="preload" as="style"
+        href="https://cdn.jsdelivr.net/npm/bootswatch@5/dist/cerulean/bootstrap.min.css">
+
+  <!-- Ранний выбор темы (без мерцания) -->
+  <script>
+    (function(){
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      window.__APP_THEME__ = theme;
+      document.documentElement.setAttribute('data-bs-theme', theme === 'dark' ? 'dark' : 'light');
+    })();
+  </script>
+
+  <!-- Bootswatch: подставляем нужный href до рендера страницы -->
+  <script>
+    (function(){
+      const THEMES = {
+        light: 'https://cdn.jsdelivr.net/npm/bootswatch@5/dist/cerulean/bootstrap.min.css',
+        dark:  'https://cdn.jsdelivr.net/npm/bootswatch@5/dist/darkly/bootstrap.min.css'
+      };
+      const href = window.__APP_THEME__ === 'dark' ? THEMES.dark : THEMES.light;
+      document.write('<link id="themeStylesheet" rel="stylesheet" href="'+ href +'">');
+    })();
+  </script>
+
+  {% block styles %}{% endblock %}
+  <style>
+    :root{
+      --card-radius: 1.1rem;
+      --shadow-s: 0 4px 14px rgba(18, 38, 63, .08);
+      --shadow-m: 0 12px 30px rgba(18, 38, 63, .12);
+    }
+    html,body{height:100%}
+    body{display:flex;flex-direction:column;background: var(--bs-body-bg);color: var(--bs-body-color)}
+
+    /* Навбар с градиентом от primary */
+    .navbar-gradient{
+      background: linear-gradient(90deg,
+        rgba(var(--bs-primary-rgb),1) 0%,
+        rgba(var(--bs-primary-rgb),.92) 100%);
+    }
+
+    /* Карточки */
+    .card{
+      border:0;
+      border-radius: var(--card-radius);
+      box-shadow: var(--shadow-s);
+      background: var(--bs-card-bg);
+      color: var(--bs-body-color);
+      overflow:hidden;
+    }
+    .card .card-header{
+      border:0;
+      background: var(--bs-tertiary-bg);
+      color: var(--bs-body-color);
+      padding:.9rem 1.1rem;
+    }
+    .card .card-title{margin:0;font-weight:600}
+    .card-header.bg-primary,
+    .card-header.bg-info,
+    .card-header.bg-success{
+      color:#fff;
+      background-image: linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,0));
+    }
+
+    main.container{max-width:1100px}
+    h1.page-title{font-weight:700;letter-spacing:.2px;margin:1rem 0 1.25rem}
+
+    .pill{border-radius:2rem; padding:.35rem .65rem; font-weight:600}
+    .pill i{margin-right:.25rem}
+
+    .input-group .form-control{border-top-left-radius:.8rem;border-bottom-left-radius:.8rem}
+    .input-group .btn{border-top-right-radius:.8rem;border-bottom-right-radius:.8rem}
+
+    /* Чат */
+    .bubble-wrap{
+      height:420px; overflow:auto; border-radius:1rem; padding:1rem;
+      background: var(--bs-body-bg);
+      border:1px solid var(--bs-border-color-translucent);
+    }
+    .bubble{
+      max-width:80%; padding:.6rem .85rem; border-radius:1rem; margin:.25rem 0;
+      box-shadow: var(--shadow-s); word-break: break-word;
+    }
+    .bubble.me{ background: var(--bs-primary-bg-subtle); }
+    .bubble.ai{ background: var(--bs-secondary-bg); }
+
+    .soft{color: var(--bs-secondary-color)}
+    .muted{opacity:.75}
+    .sticky-actions{position:sticky;bottom:0;background: var(--bs-body-bg);padding:.75rem;border-top:1px solid var(--bs-border-color-translucent)}
+
+    /* ---------- Мобильный FAB ---------- */
+    .fab{ position:fixed; right:16px; bottom:16px; z-index:1040; }
+    .fab-main{ width:56px; height:56px; border-radius:50%; box-shadow:0 8px 16px rgba(0,0,0,.2); }
+    .fab-dock{ position:absolute; bottom:72px; right:0; display:none; flex-direction:column; gap:8px; }
+    .fab.show .fab-dock{ display:flex; }
+    .fab-mini{ width:44px; height:44px; border-radius:50%; box-shadow:0 6px 12px rgba(0,0,0,.18); }
+    .fab-label{ position:absolute; right:56px; background:rgba(0,0,0,.72); color:#fff; padding:4px 8px;
+                border-radius:6px; font-size:12px; white-space:nowrap; transform:translateY(-50%); top:50%; }
+    @media (min-width: 992px){ .fab{ display:none; } } /* на десктопе FAB скрыт */
+  </style>
+</head>
+<body>
+
+  <!-- Навбар -->
+  <nav class="navbar navbar-expand-lg navbar-dark navbar-gradient sticky-top">
+    <div class="container">
+      <!-- Бургер для offcanvas (мобила) -->
+      <button class="btn btn-outline-light d-lg-none me-2"
+              type="button"
+              data-bs-toggle="offcanvas"
+              data-bs-target="#mobileMenu"
+              aria-controls="mobileMenu">
+        <i class="fas fa-bars"></i>
+      </button>
+
+      <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
+        <i class="fa-solid fa-robot"></i> Telegram Bot
+      </a>
+
+      <!-- Десктоп-меню (только ≥ lg) -->
+      <div class="collapse navbar-collapse d-none d-lg-flex ms-3" id="mainNav">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item"><a class="nav-link{% if request.endpoint=='index' %} active{% endif %}" href="{{ url_for('index') }}"><i class="fa-solid fa-magnifying-glass"></i> Парсинг</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint=='subscribe_page' %} active{% endif %}" href="{{ url_for('subscribe_page') }}"><i class="fa-solid fa-user-plus"></i> Подписка</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint=='accounts_page' %} active{% endif %}" href="{{ url_for('accounts_page') }}"><i class="fa-solid fa-user-gear"></i> Аккаунты</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint=='proxies_page' %} active{% endif %}" href="{{ url_for('proxies_page') }}"><i class="fa-solid fa-network-wired"></i> Прокси</a></li>
+
+          <!-- ▼▼ Дашборд (десктоп) — ИСПРАВЛЕНО ▼▼ -->
+          <li class="nav-item">
+            <a class="nav-link{% if request.endpoint=='dashboard.dashboard_page' %} active{% endif %}"
+               href="{{ url_for('dashboard.dashboard_page') }}">
+              <i class="fa-solid fa-gauge"></i> Дашборд
+            </a>
+          </li>
+          <!-- ▲▲ ИСПРАВЛЕНО ▲▲ -->
+
+          <li class="nav-item"><a class="nav-link{% if request.endpoint=='chat_page' %} active{% endif %}" href="{{ url_for('chat_page') }}"><i class="fa-solid fa-comments"></i> Чат</a></li>
+        </ul>
+
+        <!-- Переключатель темы (десктоп) -->
+        <div class="ms-lg-3">
+          <button id="themeToggle" class="btn btn-sm btn-outline-light d-none d-lg-inline-flex align-items-center" type="button" title="Переключить тему">
+            <i class="fa-solid"></i><span class="ms-1">Тема</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- OFFCANVAS МЕНЮ ДЛЯ МОБИЛЫ -->
+  <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileMenu" aria-labelledby="mobileMenuLabel">
+    <div class="offcanvas-header bg-primary text-white">
+      <h5 id="mobileMenuLabel" class="mb-0"><i class="fas fa-robot me-2"></i>Telegram Bot</h5>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div class="list-group mb-3">
+        <a class="list-group-item list-group-item-action{% if request.endpoint=='index' %} active{% endif %}"
+           href="{{ url_for('index') }}"><i class="fas fa-search me-2"></i>Парсинг</a>
+        <a class="list-group-item list-group-item-action{% if request.endpoint=='subscribe_page' %} active{% endif %}"
+           href="{{ url_for('subscribe_page') }}"><i class="fas fa-bell me-2"></i>Подписка</a>
+        <a class="list-group-item list-group-item-action{% if request.endpoint=='accounts_page' %} active{% endif %}"
+           href="{{ url_for('accounts_page') }}"><i class="fas fa-user-circle me-2"></i>Аккаунты</a>
+        <a class="list-group-item list-group-item-action{% if request.endpoint=='proxies_page' %} active{% endif %}"
+           href="{{ url_for('proxies_page') }}"><i class="fas fa-network-wired me-2"></i>Прокси</a>
+
+        <!-- ▼▼ Дашборд (offcanvas) — ИСПРАВЛЕНО ▼▼ -->
+        <a class="list-group-item list-group-item-action{% if request.endpoint=='dashboard.dashboard_page' %} active{% endif %}"
+           href="{{ url_for('dashboard.dashboard_page') }}"><i class="fas fa-gauge me-2"></i>Дашборд</a>
+        <!-- ▲▲ ИСПРАВЛЕНО ▲▲ -->
+
+        <a class="list-group-item list-group-item-action{% if request.endpoint=='chat_page' %} active{% endif %}"
+           href="{{ url_for('chat_page') }}"><i class="fas fa-comments me-2"></i>Чат</a>
+      </div>
+
+      <div class="d-flex align-items-center justify-content-between">
+        <span class="text-muted">Тёмная тема</span>
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" id="themeSwitchMobile">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Контент -->
+  <main class="container flex-grow-1">
+    <h1 class="page-title">{% block header %}{% endblock %}</h1>
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Подвал -->
+  <footer class="py-3 border-top bg-body">
+    <div class="container text-center soft">© 2025 Ваш Бот</div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Тема + FAB -->
+  <script>
+    (function(){
+      const THEMES = {
+        light: 'https://cdn.jsdelivr.net/npm/bootswatch@5/dist/cerulean/bootstrap.min.css',
+        dark:  'https://cdn.jsdelivr.net/npm/bootswatch@5/dist/darkly/bootstrap.min.css'
+      };
+      const link = document.getElementById('themeStylesheet');
+      const btn  = document.getElementById('themeToggle');
+      const icon = btn ? btn.querySelector('i') : null;
+      const sw   = document.getElementById('themeSwitchMobile');
+
+      function setIcon(theme){
+        if(!icon) return;
+        icon.className = 'fa-solid ' + (theme==='dark' ? 'fa-sun' : 'fa-moon');
+        btn.classList.toggle('btn-outline-light', theme!=='dark');
+        btn.classList.toggle('btn-light', theme==='dark');
+      }
+
+      function apply(theme){
+        link.href = THEMES[theme] || THEMES.light;
+        document.documentElement.setAttribute('data-bs-theme', theme==='dark' ? 'dark' : 'light');
+        localStorage.setItem('theme', theme);
+        setIcon(theme);
+        if(sw) sw.checked = (theme==='dark');
+      }
+
+      // Инициализация состояния
+      const initTheme = localStorage.getItem('theme') || (window.__APP_THEME__ || 'light');
+      setIcon(initTheme);
+      if(sw) sw.checked = (initTheme==='dark');
+
+      // Слушатели
+      if(btn) btn.addEventListener('click', ()=>{
+        const current = localStorage.getItem('theme') || (window.__APP_THEME__ || 'light');
+        apply(current === 'dark' ? 'light' : 'dark');
+      });
+      if(sw) sw.addEventListener('change', ()=>{
+        apply(sw.checked ? 'dark' : 'light');
+      });
+
+      // Глобально доступно (если вдруг потребуется из страниц)
+      window.__applyTheme = apply;
+    })();
+
+    /* --- Универсальный FAB: страницы подсовывают массив действий --- */
+    function initFab(actions){
+      try{
+        if(!actions || !actions.length) return;
+        if(window.matchMedia('(min-width: 992px)').matches) return; // только мобила
+
+        const fab = document.createElement('div');
+        fab.className = 'fab';
+        fab.innerHTML = `
+          <button class="btn btn-primary fab-main" id="fabMain" aria-label="Быстрые действия">
+            <i class="fas fa-bolt"></i>
+          </button>
+          <div class="fab-dock" id="fabDock"></div>
+        `;
+        document.body.appendChild(fab);
+
+        const dock = fab.querySelector('#fabDock');
+        actions.forEach(a=>{
+          const wrap = document.createElement('div');
+          wrap.style.position = 'relative';
+
+          const mini = document.createElement('button');
+          mini.className = 'btn btn-primary fab-mini';
+          mini.innerHTML = a.icon || '<i class="fas fa-circle"></i>';
+          mini.addEventListener('click', ()=>{
+            fab.classList.remove('show');
+            try{ a.onClick && a.onClick(); }catch(e){}
+          });
+
+          const label = document.createElement('span');
+          label.className = 'fab-label';
+          label.textContent = a.label || '';
+
+          wrap.appendChild(label);
+          wrap.appendChild(mini);
+          dock.appendChild(wrap);
+        });
+
+        fab.querySelector('#fabMain').addEventListener('click', ()=> fab.classList.toggle('show'));
+        document.addEventListener('click', (e)=>{
+          if(!fab.contains(e.target)) fab.classList.remove('show');
+        }, true);
+      }catch(e){ console.warn('FAB init error', e); }
+    }
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
