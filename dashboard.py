@@ -4,12 +4,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from flask import Blueprint, render_template, jsonify, request
 
-# ВАЖНО: импортируем твой основной модуль, где лежат accounts/контексты и конфиги
 import main
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
-# ----- пути к логам / вспомогательные -----
+
 LOGS = {
     "comments": "comments.log",
     "leaves": "leaves.log",
@@ -144,6 +143,11 @@ def _totals_from_comments(minutes: int = 1440) -> Dict[str, Any]:
     sent = [r for r in rows if r.get("EVENT") in COMMENT_EVENTS_OK]
     enq  = [r for r in rows if r.get("EVENT") in COMMENT_EVENTS_QUEUE]
 
+    # ► раздельные счётчики по SOURCE
+    sent_prev  = [r for r in sent if (r.get("SOURCE") == "prev_post")]
+    sent_new   = [r for r in sent if (r.get("SOURCE") == "new_post")]
+    sent_group = [r for r in sent if (r.get("SOURCE") == "group_reply")]
+
     # топ-каналы по «красивой метке»
     top_channels: Dict[str, int] = {}
     for r in sent:
@@ -155,7 +159,12 @@ def _totals_from_comments(minutes: int = 1440) -> Dict[str, Any]:
         "sent_count": len(sent),
         "enqueued_count": len(enq),
         "top_channels": [{"channel": k, "count": v} for k, v in top],
+        # ► новые поля
+        "sent_prev_count": len(sent_prev),
+        "sent_new_count": len(sent_new),
+        "sent_group_count": len(sent_group),
     }
+
 
 
 def _minutes_since_midnight_local() -> int:
@@ -192,13 +201,14 @@ def _accounts_overview() -> Dict[str, Any]:
             "persona": ctx.get("persona_name"),
             "proxy_verified": bool(ctx.get("proxy_verified")),
             "proxy": ctx.get("proxy_hostport"),
+            "campaign_paused": bool(ctx.get("campaign_paused", False)),
 
             # комментарии
             "cooldown": int(ctx.get("comment_cooldown") or 0),
             "next_send_at": int(ctx.get("next_send_at") or 0),
             "queue_count": len(ctx.get("comment_queue") or []),
 
-            # ✚ подписки
+            #  подписки
             "join_queue_count": len(ctx.get("join_queue") or []),
             "next_join_at": int(ctx.get("next_join_at") or 0),
             "join_daily_count": int(ctx.get("join_daily_count") or 0),
@@ -214,7 +224,7 @@ def _accounts_overview() -> Dict[str, Any]:
 
 @dashboard_bp.route("/dashboard")
 def dashboard_page():
-    # первичные значения, всё остальное подтянет JS
+    # первичные значения
     kpis_24h = _totals_from_comments(minutes=1440)
     return render_template(
         "dashboard.html",
@@ -229,16 +239,21 @@ def dashboard_overview():
     k_today = _totals_from_comments(minutes=_minutes_since_midnight_local())
     queue  = _queue_snapshot()
     accs   = _accounts_overview()
-    # последние 50 действий (ENQUEUE+SEND_OK) — лента подгружается отдельным вызовом, тут не возвращаем
+    # последние 50 действий
 
     # агрегаты
     kpis = {
-        "sent_live":       k_today["sent_count"],  # «за сегодня» — лайв счётчик
-        "sent_last_24h":   k24h["sent_count"],
-        "enqueued_now":    queue["total"],
-        "accounts_total":  len(main.accounts),
-        "joined_total":    sum(a["joined_count"] for a in accs.values()),
+        "sent_live": k_today["sent_count"],
+        "sent_last_24h": k24h["sent_count"],
+        "enqueued_now": queue["total"],
+        "accounts_total": len(main.accounts),
+        "joined_total": sum(a["joined_count"] for a in accs.values()),
+        # ► детализация
+        "sent_prev_last_24h": k24h.get("sent_prev_count", 0),
+        "sent_new_last_24h": k24h.get("sent_new_count", 0),
+        "sent_group_last_24h": k24h.get("sent_group_count", 0),
     }
+
     return jsonify({
         "now": now,
         "kpis": kpis,

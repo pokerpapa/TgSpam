@@ -318,6 +318,17 @@
           <button class="btn btn-outline-danger btn-sm" onclick="deleteSession('{{ name }}')">
             <i class="fa-solid fa-trash"></i> Удалить аккаунт
           </button>
+
+          <!-- NEW: статус рассылки -->
+          <span id="camp-badge-{{ name|replace('.', '_') }}"
+                class="badge pill bg-success align-self-center">Рассылка: идёт</span>
+
+          <!-- NEW: переключатель паузы -->
+          <button class="btn btn-outline-warning btn-sm"
+                  id="camp-toggle-{{ name|replace('.', '_') }}"
+                  onclick="toggleCampaign('{{ name }}')">
+            Пауза рассылки
+          </button>
         </div>
 
         <!-- BIO -->
@@ -834,7 +845,7 @@ function checkOneAccount(name){
 function bindBioCounter(name, maxLen){
   const ta = document.getElementById(`bio-${name}`);
   const cnt = document.getElementById(`bio-count-${name}`);
-  const max = maxLen || parseInt(document.getElementById(`bio-max-${name}`)?.textContent || '140', 10);
+  const max = maxLen || parseInt(document.getElementById('bio-max-'+name)?.textContent || '140', 10);
   if(!ta || !cnt) return;
   function upd(){ cnt.textContent = (ta.value || '').length; }
   ta.addEventListener('input', upd);
@@ -967,6 +978,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
   updateBulkSelectionUI();
+
+  // NEW: подтянуть статусы рассылки при загрузке
+  document.querySelectorAll('.acc-select').forEach(ch=>{
+    const name = ch.dataset.name;
+    if(name) fetchCampaignStatus(name);
+  });
 });
 
 
@@ -1286,5 +1303,45 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await loadPrepList();
   startPrepPolling();
 });
+
+
+/* =========================
+   NEW: Пауза/возобновление рассылки (UI)
+   ========================= */
+
+async function fetchCampaignStatus(name){
+  try{
+    const r = await fetch(`/campaign/status/${encodeURIComponent(name)}`);
+    const j = await r.json();
+    if(j.status !== 'ok') return;
+    const paused = !!j.campaign_paused;
+    const b = document.getElementById(`camp-badge-${name.replaceAll('.','_')}`);
+    const btn = document.getElementById(`camp-toggle-${name.replaceAll('.','_')}`);
+    if(!b || !btn) return;
+    if(paused){
+      b.classList.remove('bg-success'); b.classList.add('bg-secondary');
+      b.textContent = 'Рассылка: пауза';
+      btn.textContent = 'Возобновить рассылку';
+      btn.classList.remove('btn-outline-warning'); btn.classList.add('btn-outline-success');
+    }else{
+      b.classList.remove('bg-secondary'); b.classList.add('bg-success');
+      b.textContent = 'Рассылка: идёт';
+      btn.textContent = 'Пауза рассылки';
+      btn.classList.remove('btn-outline-success'); btn.classList.add('btn-outline-warning');
+    }
+  }catch(_){}
+}
+
+async function toggleCampaign(name){
+  try{
+    // сначала узнаём текущий статус
+    const s = await fetch(`/campaign/status/${encodeURIComponent(name)}`).then(r=>r.json()).catch(()=>null);
+    const paused = !!(s && s.campaign_paused);
+    const url = paused ? `/campaign/resume/${encodeURIComponent(name)}` : `/campaign/pause/${encodeURIComponent(name)}`;
+    await fetch(url, {method:'POST'});
+    fetchCampaignStatus(name); // обновим UI
+  }catch(_){}
+}
+
 </script>
 {% endblock %}

@@ -25,7 +25,7 @@ from telethon.errors import (
     FloodWaitError,
     RPCError
 )
-# 🔽 добавили явные импорты для детектирования банов/деактивации/разлогина + НОВЫЕ
+#  импорты для детектирования банов/деактивации/разлогина
 from telethon.errors.rpcerrorlist import (
     UserDeactivatedError,
     UserDeactivatedBanError,
@@ -49,11 +49,18 @@ RESTRICT_DEFAULT_HOURS = int(os.environ.get("RESTRICT_DEFAULT_HOURS", 72))
 
 def _now() -> float:
     return time.time()
+def set_campaign_paused(session_name: str, paused: bool) -> dict:
+    ctx = get_account_context(session_name)
+    ctx["campaign_paused"] = bool(paused)
+    try:
+        save_account_state(session_name)
+    except Exception:
+        pass
+    return {"name": session_name, "campaign_paused": ctx["campaign_paused"]}
 
 def mark_restricted(session_name: str, hours: int = None, reason: str = "") -> float:
     """
     Пометить аккаунт как 'restricted' на H часов (по умолчанию 72ч) и сохранить в state.
-    Возвращает UNIX-ts окончания карантина.
     """
     hours = hours or RESTRICT_DEFAULT_HOURS
     until = _now() + max(1, int(hours * 3600))
@@ -81,10 +88,7 @@ def is_restricted(session_name: str) -> bool:
 
 global_found_channels = []
 
-# ────────────────────────────────────────────────────────────────────────────────
-# ПАРАМЕТРЫ ТРОТТЛИНГА
-# ────────────────────────────────────────────────────────────────────────────────
-# ────────────────────────────────────────────────────────────────────────────────
+
 # ПАРАМЕТРЫ ТРОТТЛИНГА
 # ────────────────────────────────────────────────────────────────────────────────
 COMMENT_COOLDOWN_SECONDS = int(os.environ.get("COMMENT_COOLDOWN_SECONDS", 120))
@@ -146,16 +150,14 @@ comment_logger = _setup_file_logger("comments",     "comments.log")
 captcha_logger = _setup_file_logger("captcha",      "captcha.log")
 chat_logger    = _setup_file_logger("chat_replies", "chat_replies.log")
 proxy_logger   = _setup_file_logger("proxy",        "proxy.log")
-# >>> ДОБАВЬ где-нибудь рядом с инициализацией/сканированием sessions (после объявлений глобалок)
 
-# main.py
+
 def refresh_sessions(scan_dir: Optional[str] = None, auto_assign_missing_proxy: bool = True):
     """
     Пересканировать папку sessions/, создать контексты для новых .session,
     подтянуть сохранённое состояние, назначить персоны.
     Возвращает словарь: {"added":[...], "removed":[...]}
     """
-    # ← важное изменение: подставляем SESSION_DIR здесь, а не в сигнатуре
     scan_dir = scan_dir or SESSION_DIR
 
     os.makedirs(scan_dir, exist_ok=True)
@@ -207,6 +209,7 @@ def refresh_sessions(scan_dir: Optional[str] = None, auto_assign_missing_proxy: 
             ctx["joined_names"]    = st.get("joined_names", {})
             ctx["monitored_info"]  = {int(k): v for k, v in st.get("monitored_info", {}).items()}
             ctx["restricted_until"] = float(st.get("restricted_until", 0.0))
+            ctx["campaign_paused"] = bool(st.get("campaign_paused", False))  # NEW
 
         ctx["comment_cooldown"] = COMMENT_COOLDOWN_SECONDS
 
@@ -243,7 +246,7 @@ def _log_comment(account: str, event: str, **fields):
             if k in ("READY_AT", "NEXT_CD_UNTIL") and isinstance(v, (int, float)):
                 v = _ts(v)
             parts.append(f"{k}={v}")
-    # добавим любые прочие поля, которых нет в order
+    # любые прочие поля, которых нет в order
     for k, v in fields.items():
         if k not in order:
             parts.append(f"{k}={v}")
@@ -294,7 +297,9 @@ def save_account_state(name: str):
         "joined_names": ctx["joined_names"],
         "monitored_info": {str(k): v for k, v in ctx["monitored_info"].items()},
         "restricted_until": float(ctx.get("restricted_until") or 0.0),
+        "campaign_paused": bool(ctx.get("campaign_paused", False)),  # NEW
     }
+
     save_state(state)
 
 
@@ -531,6 +536,7 @@ def apply_proxy_from_current_sources(session_name: str):
             "group_last_sent": {},
             "group_sent_log": {},
             "restricted_until": 0.0,
+            "campaign_paused": False,
 
         }
 
@@ -1178,7 +1184,7 @@ def get_account_context(name):
             "comment_cooldown": COMMENT_COOLDOWN_SECONDS,
             "comment_seq": 0,
 
-            # ✚ Подписки (join)
+            #  Подписки
             "join_queue": deque(),  # FIFO очередь ссылок на вступление
             "join_worker_started": False,  # воркер запущен?
             "next_join_at": 0.0,  # когда можно делать следующий join
@@ -1195,6 +1201,8 @@ def get_account_context(name):
             "group_last_sent": {},
             "group_sent_log": {},
             "restricted_until": 0.0,
+            "campaign_paused": False,
+            "last_commented_post_id": {},
 
         }
 
@@ -1337,7 +1345,7 @@ for name in available_sessions:
     ctx["persona_name"] = persona_name
     logging.info(f"[persona] account={name} persona={persona_name} -> {persona_data}")
 
-# ────────────────────────────────────────────────────────────────────────────────
+
 # АНТИ-ДУБЛЬ
 # ────────────────────────────────────────────────────────────────────────────────
 LAST_SENT_TEXT_BY_DISC: Dict[int, deque] = defaultdict(lambda: deque(maxlen=DEDUP_HISTORY_SIZE))
@@ -1420,7 +1428,6 @@ def _apply_persona_style(text: str, persona: Dict) -> str:
 def _enforce_cinema_pitch(text: str) -> str:
     """
     Гарантирует наличие слова «кинотеатр» и законченной вставки про «...в профиле».
-    Подрезает аккуратно и ставит точку.
     """
     if not text:
         return text
@@ -1498,7 +1505,7 @@ def _local_variation(candidate: str, forbidden_norm: Set[str], persona: Dict) ->
             return s.strip()
     return None
 
-# ────────────────────────────────────────────────────────────────────────────────
+
 # ХЕЛПЕРЫ КОННЕКТА
 # ────────────────────────────────────────────────────────────────────────────────
 async def ensure_client_ready(session_name: str, require_auth: bool = True, enforce_proxy: bool = True) -> bool:
@@ -1578,7 +1585,7 @@ async def check_account_health(session_name: str) -> Dict:
         "username": None,
         "phone": None,
         "error": None,
-        # ✚ карантинные поля сразу «как есть»
+        # карантинные поля сразу «как есть»
         "restricted": is_restricted(session_name),
         "restricted_until": int(ctx.get("restricted_until") or 0),
     }
@@ -2138,6 +2145,11 @@ async def _comment_worker(session_name: str):
 
     while True:
         try:
+            # NEW: глобальная пауза рассылки для аккаунта
+            if ctx.get("campaign_paused", False):
+                await asyncio.sleep(1)
+                continue
+
             if not accounts[session_name].get("proxy_verified", False):
                 await asyncio.sleep(1)
                 continue
@@ -2158,11 +2170,12 @@ async def _comment_worker(session_name: str):
                 continue
 
             heapq.heappop(ctx["comment_queue"])
-            task_id  = task.get("task_id")
-            disc_id  = task["disc_id"]
+            task_id = task.get("task_id")
+            disc_id = task["disc_id"]
             reply_to = task["reply_to"]
-            text     = task["text"]
+            text = task["text"]
             src_link = task.get("source_link")
+            src = task.get("source")  # <— тег источника (prev_post/new_post/group_reply)
 
             # 5.1 HOLD: если дискуссия под hold — отложим задачу
             hold = _is_disc_blocked(session_name, disc_id)
@@ -2183,7 +2196,8 @@ async def _comment_worker(session_name: str):
             _log_comment(
                 session_name, "SEND_ATTEMPT",
                 TASK=task_id, DISC_ID=disc_id, REPLY_TO=reply_to,
-                READY_AT=ready_at, WAITED_SEC=round(waited, 1), QUEUE=qsize
+                READY_AT=ready_at, WAITED_SEC=round(waited, 1), QUEUE=qsize,
+                SOURCE=src
             )
 
             try:
@@ -2226,8 +2240,10 @@ async def _comment_worker(session_name: str):
                 _log_comment(
                     session_name, "SEND_OK",
                     TASK=task_id, DISC_ID=disc_id, MSG_ID=sent.id, LINK=src_link or 'unknown',
-                    NEXT_CD_UNTIL=ctx["next_send_at"], NEXT_CD_SEC=ctx["comment_cooldown"], TEXT=repr(text)
+                    NEXT_CD_UNTIL=ctx["next_send_at"], NEXT_CD_SEC=ctx["comment_cooldown"], TEXT=repr(text),
+                    SOURCE=src  # <— ключевая строка для правильных счётчиков
                 )
+
                 chat_logger.info(f"ACCOUNT={session_name} | CHAT_ID={disc_id} | ANSWER={text!r}")
 
             except SlowModeWaitError as e:
@@ -2323,6 +2339,105 @@ async def _comment_worker(session_name: str):
             logging.error(f"[comment_worker] ({session_name}) LOOP_ERR: {loop_err!r}")
             await asyncio.sleep(2)
 
+async def _enqueue_comment_for_discussion(
+    session_name: str,
+    disc_id: int,
+    channel_post_id: int,
+    reply_to_msg_id: int,
+    post_text: str,
+    base_prompt: str,
+    channel_link: Optional[str],
+    source_tag: str  # "new_post" | "prev_post"
+) -> None:
+    """
+    Генерирует комментарий и ставит задачу в очередь, соблюдая те же правила,
+    что и для новых постов (дедуп, hold, джиттер, cooldown).
+    """
+    if accounts.get(session_name, {}).get("campaign_paused", False):
+        return
+    if not _enforce_proxy_or_block(session_name, "_enqueue_comment_for_discussion"):
+        return
+
+    ctx = accounts[session_name]
+
+    # Если дискуссия под HOLD — не ставим
+    if _is_disc_blocked(session_name, disc_id):
+        _log_comment(session_name, "ENQUEUE_SKIPPED_BLOCKED", DISC_ID=disc_id, SOURCE=source_tag)
+        return
+
+    # Не допустить повтор на тот же thread (reply_to)
+    for _t_ready, _task in ctx.get("comment_queue", []):
+        if _task.get("disc_id") == disc_id and _task.get("reply_to") == reply_to_msg_id:
+            return
+
+    # Дедуп по текстам (включая ожидающие)
+    forbidden_norm: Set[str] = set(LAST_SENT_TEXT_BY_DISC.get(disc_id, []))
+    forbidden_norm |= _collect_pending_texts_for_disc(disc_id)
+
+    comment = await generate_comment_via_mistral(
+        post_text or "",
+        base_prompt or "",
+        avoid_phrases=list(forbidden_norm) if forbidden_norm else None
+    )
+    comment = _apply_persona_style(comment, ctx.get("persona"))
+    comment = _enforce_cinema_pitch(comment)
+    if not comment:
+        return
+
+    # ещё попытки при совпадении
+    tries = 0
+    while _normalize_text_for_dedup(comment) in forbidden_norm and tries < 2:
+        comment = await generate_comment_via_mistral(
+            post_text or "",
+            base_prompt or "",
+            avoid_phrases=list(forbidden_norm) if forbidden_norm else None
+        )
+        comment = _apply_persona_style(comment, ctx.get("persona"))
+        tries += 1
+
+    if _normalize_text_for_dedup(comment) in forbidden_norm:
+        alt = _local_variation(comment, forbidden_norm, ctx.get("persona"))
+        if alt:
+            comment = alt
+
+    # Запланировать отправку (тот же джиттер/задержка)
+    jitter = random.uniform(DESYNC_MIN_SECONDS, DESYNC_MAX_SECONDS)
+    ready_at = time.time() + POST_DELAY_SECONDS + jitter
+    ctx["comment_seq"] = ctx.get("comment_seq", 0) + 1
+    task_id = ctx["comment_seq"]
+
+    task = {
+        "task_id": task_id,
+        "disc_id": disc_id,
+        "reply_to": reply_to_msg_id,
+        "text": comment,
+        "source_link": channel_link,
+        "source": source_tag,  # <— пронесли метку источника в саму задачу
+        # для групп мы кладём peer, но здесь — обсуждение канала → резолв по disc_id
+    }
+
+    heapq.heappush(ctx["comment_queue"], (ready_at, task))
+
+    # Отметим, что для этой дискуссии мы уже взяли этот пост
+    try:
+        ctx["last_commented_post_id"][int(disc_id)] = int(channel_post_id)
+    except Exception:
+        pass
+
+    _log_comment(
+        session_name,
+        "ENQUEUE",
+        TASK=task_id,
+        CHAT_ID=disc_id,
+        READY_AT=ready_at,
+        ETA_SEC=int(ready_at - time.time()),
+        TEXT=repr(comment),
+        SOURCE=source_tag  # ► пометка для дашборда/аналитики
+    )
+
+    if not ctx.get("comment_worker_started"):
+        ctx["comment_worker_started"] = True
+        ctx["loop"].create_task(_comment_worker(session_name))
 
 async def handle_new_message(event):
     logging.info(f"[handle_new_message] incoming event: is_channel={event.is_channel}, chat_id={event.chat_id}")
@@ -2332,6 +2447,10 @@ async def handle_new_message(event):
         return
 
     if not _enforce_proxy_or_block(session_name, "handle_new_message"):
+        return
+
+    # NEW: если пауза — вовсе не генерим комментарии и не ставим в очередь
+    if accounts.get(session_name, {}).get("campaign_paused", False):
         return
 
     ctx = accounts[session_name]
@@ -2471,78 +2590,22 @@ async def handle_new_message(event):
             return
         group_msg = resp.messages[0]
 
-        forbidden_norm: Set[str] = set(LAST_SENT_TEXT_BY_DISC.get(disc_id, []))
-        forbidden_norm |= _collect_pending_texts_for_disc(disc_id)
-
-        comment = await generate_comment_via_mistral(
-            event.message.message,
-            base_prompt,
-            avoid_phrases=list(forbidden_norm) if forbidden_norm else None
-        )
-        comment = _apply_persona_style(comment, ctx.get("persona"))
-        comment = _enforce_cinema_pitch(comment)
-
-        tries = 0
-        while _normalize_text_for_dedup(comment) in forbidden_norm and tries < 2:
-            logging.info(f"[dedup] duplicate detected for disc={disc_id}, retry={tries + 1}")
-            comment = await generate_comment_via_mistral(
-                event.message.message,
-                base_prompt,
-                avoid_phrases=list(forbidden_norm) if forbidden_norm else None
-            )
-            comment = _apply_persona_style(comment, ctx.get("persona"))
-            tries += 1
-
-        if _normalize_text_for_dedup(comment) in forbidden_norm:
-            alt = _local_variation(comment, forbidden_norm, ctx.get("persona"))
-            if alt:
-                logging.info(f"[dedup] local variation applied: {alt!r}")
-                comment = alt
-
-        if not comment:
-            return
-
         channel_link = next(
             (lnk for lnk, ent in ctx["joined_entities"].items() if getattr(ent, "id", None) == key),
             None
         )
 
-        jitter = random.uniform(DESYNC_MIN_SECONDS, DESYNC_MAX_SECONDS)
-        ready_at = time.time() + POST_DELAY_SECONDS + jitter
-        ctx["comment_seq"] = ctx.get("comment_seq", 0) + 1
-        task_id = ctx["comment_seq"]
-
-        for _t_ready, _task in ctx["comment_queue"]:
-            if _task["disc_id"] == disc_id and _task["reply_to"] == group_msg.id:
-                logging.info(
-                    f"[handle_new_message] ({session_name}) duplicate task skipped disc={disc_id} reply_to={group_msg.id}")
-                return
-
-        delay = int(ready_at - time.time())
-        logging.info(
-            f"[comment] ({session_name}) for disc_id={disc_id} reply_to={group_msg.id} "
-            f"generated={comment!r} send_in={delay}s"
+        # ► используем общий helper; source_tag = "new_post"
+        await _enqueue_comment_for_discussion(
+            session_name=session_name,
+            disc_id=disc_id,
+            channel_post_id=event.id,
+            reply_to_msg_id=group_msg.id,
+            post_text=event.message.message or "",
+            base_prompt=base_prompt,
+            channel_link=channel_link,
+            source_tag="new_post"
         )
-
-        task = {
-            "task_id": task_id,
-            "disc_id": disc_id,
-            "reply_to": group_msg.id,
-            "text": comment,
-            "source_link": channel_link
-            # peer тут не кладём — воркер сам резолвит по disc_id
-        }
-        heapq.heappush(ctx["comment_queue"], (ready_at, task))
-
-        logging.info(f"[handle_new_message] ({session_name}) ENQUEUE task={task_id} for {disc_id} at {ready_at}")
-        _log_comment(session_name, "ENQUEUE",
-                     TASK=task_id, CHAT_ID=disc_id, READY_AT=ready_at,
-                     ETA_SEC=int(ready_at - time.time()), TEXT=repr(comment)
-                     )
-
-        if not ctx["comment_worker_started"]:
-            ctx["comment_worker_started"] = True
-            ctx["loop"].create_task(_comment_worker(session_name))
         return
 
     elif mode == "group":
@@ -2614,7 +2677,8 @@ async def handle_new_message(event):
         _log_comment(
             session_name, "ENQUEUE",
             TASK=task_id, CHAT_ID=key, READY_AT=ready_at,
-            ETA_SEC=int(ready_at - time.time()), TEXT=repr(comment)
+            ETA_SEC=int(ready_at - time.time()), TEXT=repr(comment),
+            SOURCE="group_reply"
         )
 
         if not ctx["comment_worker_started"]:
@@ -2941,7 +3005,46 @@ async def _perform_join_and_setup(session_name: str, link: str, comment_text: st
 
             ctx["monitored_info"][chan_id] = (disc_id, comment_text, "discussion")
             _log_comment(session_name, "JOIN_DISCUSSION_OK", DISC_ID=disc_id)
+
+            # ► БЭКО-КОММЕНТ: попробуем прокомментировать последний пост, если ещё не делали
+            try:
+                # 1) последний пост канала
+                last_posts = await client.get_messages(ent, limit=1)
+                if last_posts and last_posts[0]:
+                    last_post = last_posts[0]
+                    last_post_id = int(last_post.id)
+
+                    # Не дублировать, если уже комментировали этот пост
+                    already = int(ctx.get("last_commented_post_id", {}).get(int(disc_id), 0) or 0)
+                    if last_post_id != already:
+                        # 2) сопоставить пост ↔ сообщение в обсуждении (reply_to)
+                        resp = await client(functions.messages.GetDiscussionMessageRequest(
+                            peer=ent, msg_id=last_post_id
+                        ))
+                        if resp and resp.messages:
+                            grp_msg = resp.messages[0]
+                            # 3) ссылка канала (для логов)
+                            channel_link = next(
+                                (lnk for lnk, e2 in ctx["joined_entities"].items() if
+                                 getattr(e2, "id", None) == chan_id),
+                                None
+                            )
+                            # 4) поставить задачу, как и для «нового поста», но с меткой source_tag="prev_post"
+                            await _enqueue_comment_for_discussion(
+                                session_name=session_name,
+                                disc_id=disc_id,
+                                channel_post_id=last_post_id,
+                                reply_to_msg_id=int(grp_msg.id),
+                                post_text=last_post.message or "",
+                                base_prompt=comment_text,
+                                channel_link=channel_link,
+                                source_tag="prev_post"
+                            )
+            except Exception as e:
+                logging.warning(f"[join_backfill] ({session_name}) backfill failed: {e}")
+
             return True
+
 
         elif is_megagroup:
             ctx["monitored_info"][chan_id] = (chan_id, comment_text, "group")

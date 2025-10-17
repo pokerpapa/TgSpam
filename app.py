@@ -1,4 +1,3 @@
-# app.py
 import os
 import json
 import threading
@@ -27,6 +26,7 @@ proxy_pool_path = os.path.join(BASE_DIR, "proxies.txt")
 app = Flask(__name__)
 from flask import session, url_for
 app.register_blueprint(dashboard_bp)
+
 # короткий кэш профилей (чтобы не долбить API)
 _PROFILE_CACHE = {}  # key: session_name -> (expires_ts, payload_json)
 _PROFILE_CACHE_TTL = int(os.environ.get("PROFILE_CACHE_TTL", "180"))  # 3 мин
@@ -35,11 +35,14 @@ ADMIN_LOGIN = os.environ.get('ADMIN_LOGIN', '').strip()
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '').strip()
 if not ADMIN_LOGIN or not ADMIN_PASSWORD:
     print('[security] ВНИМАНИЕ: ADMIN_LOGIN/ADMIN_PASSWORD не заданы! Установите их в .env')
+
+
 # ────────────────────────────────────────────────────────────────────────────────
 # Аватарки: получить текущую, загрузить пул, поставить случайную
 # ────────────────────────────────────────────────────────────────────────────────
 AVATAR_CACHE_TTL = 300  # сек
 _AVATAR_HOT_CACHE = {}  # name -> (expires_ts, exists_bool)
+
 
 # Секрет для cookie-сессии
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'change-me-please')
@@ -212,10 +215,7 @@ def prep_cancel(session_name):
 
 @app.post("/prep/promote/<session_name>")
 def prep_promote(session_name):
-    """
-    В текущей минимал-версии "В работу" просто удаляет карточку из 'подготовки'.
-    При желании сюда можно добавить автопереключение active_session_name.
-    """
+
     _prep_remove(session_name)
     return jsonify({"status":"ok"})
 
@@ -223,10 +223,6 @@ def plan_channel_distribution(channels, account_names):
     """
     Распределяет уникальные ссылки каналов/чатов между аккаунтами БЕЗ повторов.
 
-    Правила:
-    - сохраняем порядок ссылок как в форме
-    - если какой-то аккаунт УЖЕ состоит в канале — закрепляем его за этим каналом
-    - оставшиеся каналы раздаём по balance/round-robin (чтобы нагрузка была ровной)
     """
     # 0) нормализация входа
     order = []
@@ -455,7 +451,7 @@ logging.basicConfig(
 )
 
 # === Консольный вывод для всех наших именованных логгеров ===
-# 1) убедимся, что у рута есть StreamHandler (на всякий)
+
 root = logging.getLogger()
 if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
     sh = logging.StreamHandler()
@@ -466,12 +462,12 @@ if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
     ))
     root.addHandler(sh)
 
-# 2) пусть наши файловые логгеры «пузырят» в рут → попадут в консоль
+
 for lg in (leave_logger, comment_logger, captcha_logger, chat_logger, proxy_logger):
     lg.setLevel(logging.INFO)
     lg.propagate = True  # ключевая строка
 
-# 3) чуть разговорчивее Telethon (бывает полезно)
+
 logging.getLogger("telethon").setLevel(logging.INFO)
 
 MISTRAL_CHAT_KEY = os.environ.get("MISTRAL_CHAT_KEY", "") or getattr(main, "MISTRAL_CHAT_KEY", "")
@@ -487,7 +483,7 @@ def ensure_loop_running(ctx):
     t = threading.Thread(target=_run_loop, daemon=True)
     t.start()
     ctx["loop_thread"] = t
-# >>> ДОБАВЬ ПОСЛЕ других маршрутов
+
 
 @app.route('/refresh_sessions', methods=['POST'])
 def refresh_sessions_route():
@@ -752,7 +748,7 @@ def chat_page():
 # === В /accounts — список стран и статусы без создания клиентов ===
 @app.route('/accounts', methods=['GET'])
 def accounts_page():
-    # НЕ вызываем main.get_account_context здесь, чтобы случайно не сконструировать TelegramClient в web-потоке
+
     statuses = {}
     hostports = {}
     for name in available_sessions:
@@ -974,7 +970,7 @@ def auto_assign_all():
         }
     return jsonify({"status":"ok","results":results, "pool_count": pool_count, "pool_path": main.PROXY_POOL_FILE, "filters": filters})
 
-# NEW: удалить текущий прокси у аккаунта
+#  удалить текущий прокси у аккаунта
 @app.route('/clear_proxy/<session_name>', methods=['POST'])
 def clear_proxy(session_name):
     if session_name not in available_sessions:
@@ -994,7 +990,7 @@ def clear_proxy(session_name):
         "verified": bool(ok)
     })
 
-# NEW: проверка валидности всех аккаунтов c учётом прокси
+#  проверка валидности всех аккаунтов c учётом прокси
 @app.route('/check_accounts', methods=['POST'])
 def check_accounts():
     """
@@ -1088,6 +1084,26 @@ def stop():
         return jsonify({"status": "Proxy not verified"}), 400
     stop_script(main.active_session_name)
     return jsonify({"status": "Script stopped"})
+@app.get("/campaign/status/<session_name>")
+def campaign_status(session_name):
+    if session_name not in main.available_sessions:
+        return jsonify({"status": "error", "message": "Account not found"}), 404
+    ctx = main.get_account_context(session_name)
+    return jsonify({"status": "ok", "campaign_paused": bool(ctx.get("campaign_paused", False))})
+
+@app.post("/campaign/pause/<session_name>")
+def campaign_pause(session_name):
+    if session_name not in main.available_sessions:
+        return jsonify({"status": "error", "message": "Account not found"}), 404
+    res = main.set_campaign_paused(session_name, True)
+    return jsonify({"status": "ok", **res})
+
+@app.post("/campaign/resume/<session_name>")
+def campaign_resume(session_name):
+    if session_name not in main.available_sessions:
+        return jsonify({"status": "error", "message": "Account not found"}), 404
+    res = main.set_campaign_paused(session_name, False)
+    return jsonify({"status": "ok", **res})
 
 @app.route('/download', methods=['GET'])
 def download():
@@ -1255,7 +1271,7 @@ def leave_channel_route():
     ctx = get_account_context(main.active_session_name)
     ensure_loop_running(ctx)
 
-    # NEW: предварительная проверка авторизации
+    # предварительная проверка авторизации
     fut_ready = asyncio.run_coroutine_threadsafe(
         main.ensure_client_ready(main.active_session_name, require_auth=True),
         ctx["loop"]
